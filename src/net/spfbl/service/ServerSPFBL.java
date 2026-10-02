@@ -36,6 +36,7 @@ import java.util.Map;
 import java.util.StringTokenizer;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -277,7 +278,9 @@ public class ServerSPFBL extends Server {
         }
     }
     
-    private static final HashMap<InetAddress,ClientCache> CLIENT_CACHE_MAP = new HashMap<>();
+    // Cache entries are reconstructible; keep unique remote IPs from growing this map indefinitely.
+    private static final int MAX_CLIENT_CACHE_ENTRIES = 32768;
+    private static final ConcurrentHashMap<InetAddress,ClientCache> CLIENT_CACHE_MAP = new ConcurrentHashMap<>();
     
     private static class ClientCache {
         
@@ -302,6 +305,25 @@ public class ServerSPFBL extends Server {
             InetAddress ipAddress, ClientCache clientCache
     ) {
         if (ipAddress != null && clientCache != null) {
+            if (!CLIENT_CACHE_MAP.containsKey(ipAddress)
+                    && CLIENT_CACHE_MAP.size() >= MAX_CLIENT_CACHE_ENTRIES) {
+                int checked = 0;
+                for (Map.Entry<InetAddress,ClientCache> entry : CLIENT_CACHE_MAP.entrySet()) {
+                    if (entry.getValue().isExpired()) {
+                        CLIENT_CACHE_MAP.remove(entry.getKey(), entry.getValue());
+                    }
+                    if (++checked >= 64) {
+                        break;
+                    }
+                }
+                if (CLIENT_CACHE_MAP.size() >= MAX_CLIENT_CACHE_ENTRIES) {
+                    // Evict one mapping; a miss only causes the client record to be fetched again.
+                    for (Map.Entry<InetAddress,ClientCache> entry : CLIENT_CACHE_MAP.entrySet()) {
+                        CLIENT_CACHE_MAP.remove(entry.getKey(), entry.getValue());
+                        break;
+                    }
+                }
+            }
             CLIENT_CACHE_MAP.put(ipAddress, clientCache);
         }
     }
@@ -310,7 +332,13 @@ public class ServerSPFBL extends Server {
         if (ipAddress == null) {
             return null;
         } else {
-            return CLIENT_CACHE_MAP.get(ipAddress);
+            ClientCache clientCache = CLIENT_CACHE_MAP.get(ipAddress);
+            if (clientCache != null && clientCache.isExpired()) {
+                CLIENT_CACHE_MAP.remove(ipAddress, clientCache);
+                return null;
+            } else {
+                return clientCache;
+            }
         }
     }
     
