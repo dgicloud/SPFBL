@@ -7970,9 +7970,11 @@ public final class ServerHTTP extends Server {
         builder.append("          color: white;\n");
         builder.append("      }\n");
         builder.append("    </style>\n");
+        builder.append("    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
+        builder.append("    <link rel=\"stylesheet\" href=\"style.css\">\n");
         builder.append("  </head>\n");
         // Body.
-        builder.append("  <body>\n");
+        builder.append("  <body class=\"query-detail-page\">\n");
         if (locale.getLanguage().toLowerCase().equals("pt")) {
             builder.append("    <b>Recepção:</b> ");
         } else {
@@ -8642,129 +8644,8 @@ public final class ServerHTTP extends Server {
             } else {
                 builder.append("    <title>SPFBL control panel</title>\n");
             }
-            // Styled page.
-            builder.append("    <style type=\"text/css\">\n");
-            builder.append("      body {\n");
-            builder.append("        margin:180px 0px 30px 0px;\n");
-            builder.append("        background:lightgray;\n");
-            builder.append("      }\n");
-            builder.append("      iframe {\n");
-            builder.append("        border-width: 0px 0px 0px 0px;\n");
-            builder.append("        width:100%;\n");
-            builder.append("        height:150px;\n");
-            builder.append("      }\n");
-            builder.append("      .header {\n");
-            builder.append("        background-color:lightgray;\n");
-            builder.append("        border-width: 0px 0px 0px 0px;\n");
-            builder.append("        position:fixed;\n");
-            builder.append("        top:0px;\n");
-            builder.append("        margin:auto;\n");
-            builder.append("        z-index:1;\n");
-            builder.append("        width:100%;\n");
-            builder.append("        height:180px;\n");
-            builder.append("      }\n");
-            builder.append("      .bottom {\n");
-            builder.append("        background-color:lightgray;\n");
-            builder.append("        border-width: 0px 0px 0px 0px;\n");
-            builder.append("        position:fixed;\n");
-            builder.append("        bottom:0px;\n");
-            builder.append("        margin:auto;\n");
-            builder.append("        z-index:1;\n");
-            builder.append("        width:100%;\n");
-            builder.append("        height:30px;\n");
-            builder.append("      }\n");
-            builder.append("      .button {\n");
-            builder.append("          background-color: #4CAF50;\n");
-            builder.append("          border: none;\n");
-            builder.append("          color: white;\n");
-            builder.append("          padding: 16px 32px;\n");
-            builder.append("          text-align: center;\n");
-            builder.append("          text-decoration: none;\n");
-            builder.append("          display: inline-block;\n");
-            builder.append("          font-size: 16px;\n");
-            builder.append("          margin: 4px 2px;\n");
-            builder.append("          -webkit-transition-duration: 0.4s;\n");
-            builder.append("          transition-duration: 0.4s;\n");
-            builder.append("          cursor: pointer;\n");
-            builder.append("      }\n");
-            builder.append("      .sender {\n");
-            builder.append("          background-color: white; \n");
-            builder.append("          color: black; \n");
-            builder.append("          border: 2px solid #008CBA;\n");
-            builder.append("          width: 100%;\n");
-            builder.append("          word-wrap: break-word;\n");
-            builder.append("      }\n");
-            builder.append("      .sender:hover {\n");
-            builder.append("          background-color: #008CBA;\n");
-            builder.append("          color: white;\n");
-            builder.append("      }\n");
-            builder.append("      .highlight {\n");
-            builder.append("        background: #b4b9d2;\n");
-            builder.append("        color:black;\n");
-            builder.append("        border-top: 1px solid #22262e;\n");
-            builder.append("        border-bottom: 1px solid #22262e;\n");
-            builder.append("      }\n");
-            builder.append("      .highlight:nth-child(odd) td {\n");
-            builder.append("        background: #b4b9d2;\n");
-            builder.append("      }\n");
-            builder.append("      .click {\n");
-            builder.append("        cursor:pointer;\n");
-            builder.append("        cursor:hand;\n");
-            builder.append("      }\n");
-            builder.append("      table {\n");
-            builder.append("        background: white;\n");
-            builder.append("        table-layout:fixed;\n");
-            builder.append("        border-collapse: collapse;\n");
-            builder.append("        word-wrap:break-word;\n");
-            builder.append("        border-radius:3px;\n");
-            builder.append("        border-collapse: collapse;\n");
-            builder.append("        margin: auto;\n");
-            builder.append("        padding:2px;\n");
-            builder.append("        width: 100%;\n");
-            builder.append("        box-shadow: 0 5px 10px rgba(0, 0, 0, 0.1);\n");
-            builder.append("        animation: float 5s infinite;\n");
-            builder.append("      }\n");
-            builder.append("      th {\n");
-            builder.append("        color:#FFFFFF;;\n");
-            builder.append("        background:#1b1e24;\n");
-            builder.append("        border-bottom:4px solid #9ea7af;\n");
-            builder.append("        border-right: 0px;\n");
-            builder.append("        font-size:16px;\n");
-            builder.append("        font-weight: bold;\n");
-            builder.append("        padding:4px;\n");
-            builder.append("        text-align:left;\n");
-            builder.append("        text-shadow: 0 1px 1px rgba(0, 0, 0, 0.1);\n");
-            builder.append("        vertical-align:middle;\n");
-            builder.append("        height:30px;\n");
-            builder.append("      }\n");
-            builder.append("      tr {\n");
-            builder.append("        border-top: 1px solid #C1C3D1;\n");
-            builder.append("        border-bottom-: 1px solid #C1C3D1;\n");
-            builder.append("        font-size:16px;\n");
-            builder.append("        font-weight:normal;\n");
-            builder.append("        text-shadow: 0 1px 1px rgba(256, 256, 256, 0.1);\n");
-            builder.append("      }\n");
-            builder.append("      tr:nth-child(odd) td {\n");
-            builder.append("        background:#EBEBEB;\n");
-            builder.append("      }\n");
-            builder.append("      td {\n");
-            builder.append("        padding:2px;\n");
-            builder.append("        vertical-align:middle;\n");
-            builder.append("        font-size:16px;\n");
-            builder.append("        text-shadow: -1px -1px 1px rgba(0, 0, 0, 0.1);\n");
-            builder.append("        border-right: 1px solid #C1C3D1;\n");
-            builder.append("      }\n");
-            builder.append("      input[type=text], select {\n");
-            builder.append("        width: 400px;\n");
-            builder.append("        padding: 0px 4px;\n");
-            builder.append("        margin: 1px 0;\n");
-            builder.append("        display: inline-block;\n");
-            builder.append("        background: #b4b9d2;\n");
-            builder.append("        border: 1px solid #ccc;\n");
-            builder.append("        border-radius: 4px;\n");
-            builder.append("        box-sizing: border-box;\n");
-            builder.append("      }\n");
-            builder.append("    </style>\n");
+            builder.append("    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
+            builder.append("    <link rel=\"stylesheet\" href=\"style.css\">\n");
             // JavaScript functions.
             TreeMap<Long,Query> queryMap = user.getQueryMap(null, null);
             builder.append("    <script type=\"text/javascript\" src=\"https://ajax.googleapis.com/ajax/libs/jquery/2.1.3/jquery.min.js\"></script>\n");
@@ -8863,40 +8744,79 @@ public final class ServerHTTP extends Server {
             builder.append("    </script>\n");
             builder.append("  </head>\n");
             // Body.
-            builder.append("  <body>\n");
-            builder.append("    <div class=\"header\">\n");
-            if (queryMap == null) {
-                builder.append("      <iframe id=\"viewer\" src=\"about:blank\"></iframe>\n");
-            } else if (queryMap.isEmpty()) {
-                builder.append("      <iframe id=\"viewer\" src=\"about:blank\"></iframe>\n");
+            builder.append("  <body class=\"dashboard-page\">\n");
+            builder.append("    <div class=\"dashboard-shell\">\n");
+            builder.append("      <header class=\"dashboard-topbar\">\n");
+            builder.append("        <div class=\"dashboard-brand\">\n");
+            builder.append("          <span class=\"dashboard-logo\"><img src=\"logo.png\" alt=\"SPFBL\"></span>\n");
+            builder.append("          <div class=\"dashboard-brand-copy\">\n");
+            if (locale.getLanguage().toLowerCase().equals("pt")) {
+                builder.append("            <h1>Filtro de e-mails</h1>\n");
+                builder.append("            <p>Acompanhe as mensagens analisadas e suas decisões de entrega.</p>\n");
             } else {
-                builder.append("      <iframe id=\"viewer\" src=\"/");
+                builder.append("            <h1>Email activity</h1>\n");
+                builder.append("            <p>Review analyzed messages and their delivery decisions.</p>\n");
+            }
+            builder.append("          </div>\n");
+            builder.append("        </div>\n");
+            builder.append("        <div class=\"dashboard-search\">\n");
+            if (locale.getLanguage().toLowerCase().equals("pt")) {
+                builder.append("          <input type=\"text\" id=\"filterField\" name=\"filterField\" placeholder=\"Pesquisar por remetente, domínio ou IP...\" aria-label=\"Pesquisar mensagens\" onkeydown=\"if (event.keyCode == 13) refresh();\" autofocus>\n");
+                builder.append("          <button type=\"button\" class=\"dashboard-search-button\" aria-label=\"Pesquisar\" title=\"Pesquisar\" onclick=\"refresh()\">⌕</button>\n");
+            } else {
+                builder.append("          <input type=\"text\" id=\"filterField\" name=\"filterField\" placeholder=\"Search sender, domain, or IP...\" aria-label=\"Search messages\" onkeydown=\"if (event.keyCode == 13) refresh();\" autofocus>\n");
+                builder.append("          <button type=\"button\" class=\"dashboard-search-button\" aria-label=\"Search\" title=\"Search\" onclick=\"refresh()\">⌕</button>\n");
+            }
+            builder.append("        </div>\n");
+            builder.append("      </header>\n");
+            String detailsTitle;
+            String tableTitle;
+            if (locale.getLanguage().toLowerCase().equals("pt")) {
+                detailsTitle = "Detalhes da mensagem selecionada";
+                tableTitle = "Colunas da lista de e-mails";
+            } else {
+                detailsTitle = "Selected message details";
+                tableTitle = "Email activity list columns";
+            }
+            builder.append("      <section class=\"dashboard-detail\" aria-label=\"");
+            builder.append(detailsTitle);
+            builder.append("\">\n");
+            if (queryMap == null || queryMap.isEmpty()) {
+                builder.append("        <iframe id=\"viewer\" src=\"about:blank\" title=\"");
+                builder.append(detailsTitle);
+                builder.append("\"></iframe>\n");
+            } else {
+                builder.append("        <iframe id=\"viewer\" src=\"/");
                 builder.append(queryMap.lastKey());
+                builder.append("\" title=\"");
+                builder.append(detailsTitle);
                 builder.append("\"></iframe>\n");
             }
-            // Construção da tabela de consultas.
-            builder.append("      <table>\n");
-            builder.append("        <thead>\n");
-            builder.append("          <tr>\n");
+            builder.append("      </section>\n");
+            builder.append("      <div class=\"dashboard-table-scroll\">\n");
+            builder.append("        <table class=\"dashboard-table dashboard-columns\" aria-label=\"");
+            builder.append(tableTitle);
+            builder.append("\">\n");
+            builder.append("          <thead>\n");
+            builder.append("            <tr>\n");
             if (locale.getLanguage().toLowerCase().equals("pt")) {
-                builder.append("            <th style=\"width:120px;\">Recepção</th>\n");
-                builder.append("            <th>Origem</th>\n");
-                builder.append("            <th>Remetente</th>\n");
-                builder.append("            <th>Conteúdo</th>\n");
-                builder.append("            <th>Entrega</th>\n");
+                builder.append("              <th scope=\"col\">Recepção</th>\n");
+                builder.append("              <th scope=\"col\">Origem</th>\n");
+                builder.append("              <th scope=\"col\">Remetente</th>\n");
+                builder.append("              <th scope=\"col\">Conteúdo</th>\n");
+                builder.append("              <th scope=\"col\">Entrega</th>\n");
             } else {
-                builder.append("            <th style=\"width:160px;\">Reception</th>\n");
-                builder.append("            <th style=\"width:auto;\">Source</th>\n");
-                builder.append("            <th style=\"width:auto;\">Sender</th>\n");
-                builder.append("            <th style=\"width:auto;\">Content</th>\n");
-                builder.append("            <th style=\"width:auto;\">Delivery</th>\n");
+                builder.append("              <th scope=\"col\">Reception</th>\n");
+                builder.append("              <th scope=\"col\">Source</th>\n");
+                builder.append("              <th scope=\"col\">Sender</th>\n");
+                builder.append("              <th scope=\"col\">Content</th>\n");
+                builder.append("              <th scope=\"col\">Delivery</th>\n");
             }
-            builder.append("          </tr>\n");
-            builder.append("        </thead>\n");
-            builder.append("      </table>\n");
-            builder.append("    </div>\n");
+            builder.append("            </tr>\n");
+            builder.append("          </thead>\n");
+            builder.append("        </table>\n");
             if (queryMap == null) {
-                builder.append("    <table>\n");
+                builder.append("        <table class=\"dashboard-table dashboard-results\">\n");
                 builder.append("      <tbody>\n");
                 builder.append("        <tr>\n");
                 if (locale.getLanguage().toLowerCase().equals("pt")) {
@@ -8908,7 +8828,7 @@ public final class ServerHTTP extends Server {
                 builder.append("      </tbody>\n");
                 builder.append("    </table>\n");
             } else if (queryMap.isEmpty()) {
-                builder.append("    <table>\n");
+                builder.append("        <table class=\"dashboard-table dashboard-results\">\n");
                 builder.append("      <tbody>\n");
                 builder.append("        <tr>\n");
                 if (locale.getLanguage().toLowerCase().equals("pt")) {
@@ -8924,7 +8844,7 @@ public final class ServerHTTP extends Server {
                 dateFormat.setTimeZone(timeZone);
                 GregorianCalendar calendar = new GregorianCalendar(locale);
                 calendar.setTimeZone(timeZone);
-                builder.append("    <table>\n");
+                builder.append("        <table class=\"dashboard-table dashboard-results\">\n");
                 builder.append("      <tbody id=\"tableBody\">\n");
                 boolean noMore = true;
                 for (long timeKey : queryMap.descendingKeySet()) {
@@ -8963,23 +8883,14 @@ public final class ServerHTTP extends Server {
                 builder.append("      </tbody>\n");
                 builder.append("    </table>\n");
             }
-            builder.append("    <div class=\"bottom\">\n");
-            builder.append("      <table>\n");
-            builder.append("        <tr>\n");
+            builder.append("      </div>\n");
+            builder.append("      <footer class=\"dashboard-footer\"><small>");
             if (locale.getLanguage().toLowerCase().equals("pt")) {
-                builder.append("          <th>Pesquisar <input type=\"text\" id=\"filterField\" name=\"filterField\" onkeydown=\"if (event.keyCode == 13) refresh();\" autofocus></th>\n");
+                builder.append("Powered by <a href='https://spfbl.net/'>SPFBL.net</a>");
             } else {
-                builder.append("          <th>Search <input type=\"text\" id=\"filterField\" name=\"filterField\" onkeydown=\"if (event.keyCode == 13) refresh();\" autofocus></th>\n");
+                builder.append("Powered by <a href='https://spfbl.net/'>SPFBL.net</a>");
             }
-            builder.append("          <th style=\"text-align:right;\"><small>");
-            if (locale.getLanguage().toLowerCase().equals("pt")) {
-                builder.append("Powered by <a target=\"_blank\" href=\"http://spfbl.net/\" style=\"color: #b4b9d2;\">SPFBL.net</a></small>");
-            } else {
-                builder.append("Powered by <a target=\"_blank\" href=\"http://spfbl.net/en/\" style=\"color: #b4b9d2;\">SPFBL.net</a></small>");
-            }
-            builder.append("</th>\n");
-            builder.append("        </tr>\n");
-            builder.append("      <table>\n");
+            builder.append("</small></footer>\n");
             builder.append("    </div>\n");
             builder.append("  </body>\n");
             builder.append("</html>\n");
@@ -9168,7 +9079,8 @@ public final class ServerHTTP extends Server {
     ) {
         builder.append("  <head>\n");
         builder.append("    <meta charset=\"UTF-8\">\n");
-        builder.append("    <link rel=\"shortcut icon\" type=\"image/png\" href=\"favicon.png\">\n");
+        builder.append("    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
+        builder.append("    <link rel=\"icon\" type=\"image/png\" href=\"favicon.png\">\n");
         builder.append("    <title>");
         builder.append(title);
         builder.append("</title>\n");
@@ -9193,7 +9105,8 @@ public final class ServerHTTP extends Server {
     ) {
         builder.append("  <head>\n");
         builder.append("    <meta charset=\"UTF-8\">\n");
-        builder.append("    <link rel=\"shortcut icon\" type=\"image/png\" href=\"favicon.png\">\n");
+        builder.append("    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
+        builder.append("    <link rel=\"icon\" type=\"image/png\" href=\"favicon.png\">\n");
         builder.append("    <meta charset=\"UTF-8\" http-equiv=\"refresh\" content=\"");
         builder.append(time);
         builder.append(";url=");
@@ -9212,7 +9125,7 @@ public final class ServerHTTP extends Server {
             StringBuilder builder
     ) {
         builder.append("      <div id=\"divlogo\">\n");
-        builder.append("        <img src=\"logo.png\" alt=\"Logo\" style=\"max-width:468px;max-height:60px;\">\n");
+        builder.append("        <img src=\"logo.png\" alt=\"SPFBL\" style=\"max-width:468px;max-height:60px;\">\n");
         builder.append("      </div>\n");
     }
 
@@ -9327,7 +9240,7 @@ public final class ServerHTTP extends Server {
                 builder.append("        </div>\n");
             }
             builder.append("        <div id=\"divpowered\">\n");
-            builder.append("          Powered by <a target=\"_blank\" href=\"http://spfbl.net/\">SPFBL.net</a>\n");
+            builder.append("          Powered by <a href='https://spfbl.net/'>SPFBL.net</a>\n");
             builder.append("        </div>\n");
         } else {
             if (unsubscribeURL == null) {
@@ -9342,7 +9255,7 @@ public final class ServerHTTP extends Server {
                 builder.append("        </div>\n");
             }
             builder.append("        <div id=\"divpowered\">\n");
-            builder.append("          Powered by <a target=\"_blank\" href=\"http://spfbl.net/en/\">SPFBL.net</a>\n");
+            builder.append("          Powered by <a href='https://spfbl.net/'>SPFBL.net</a>\n");
             builder.append("        </div>\n");
         }
         builder.append("      </div>\n");
@@ -9359,9 +9272,9 @@ public final class ServerHTTP extends Server {
         builder.append(locale.getLanguage());
         builder.append("\">\n");
         if (locale.getLanguage().toLowerCase().equals("pt")) {
-            buildHead(true, builder, "Serviço SPFBL");
+            buildHead(true, builder, "SPFBL");
         } else {
-            buildHead(true, builder, "SPFBL Service");
+            buildHead(true, builder, "SPFBL");
         }
         builder.append("  <body>\n");
         builder.append("    <div id=\"container\">\n");
