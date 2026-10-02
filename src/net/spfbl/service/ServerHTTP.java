@@ -6832,7 +6832,7 @@ public final class ServerHTTP extends Server {
         } else {
             buildAdvertise(builder);
         }
-        buildMessage(builder, locale, message);
+        buildMessage(builder, message);
         TreeMap<String, Boolean> emailMap = new TreeMap<>();
         if (isValidIP(query)) {
             String ip = Subnet.normalizeIP(query);
@@ -7858,6 +7858,7 @@ public final class ServerHTTP extends Server {
                 }
             }
         }
+        buildQueryAction(builder, locale);
         buildFooter(builder, locale, null);
         builder.append("    </div>\n");
         builder.append("  </body>\n");
@@ -9164,16 +9165,19 @@ public final class ServerHTTP extends Server {
             Locale locale,
             String message
     ) {
-        builder.append("      <hr>\n");
+        buildMessage(builder, message);
+    }
+
+    private static void buildQueryAction(
+            StringBuilder builder,
+            Locale locale
+    ) {
+        builder.append("      <div class=\"query-action\">\n");
         if (locale.getLanguage().toLowerCase().equals("pt")) {
             builder.append("      <button onclick=\"window.location='/pt/';\">Nova consulta</button>\n");
         } else {
             builder.append("      <button onclick=\"window.location='/en/';\">New query</button>\n");
         }
-        builder.append("      <div id=\"divmsg\">\n");
-        builder.append("        <p id=\"titulo\">");
-        builder.append(message);
-        builder.append("</p>\n");
         builder.append("      </div>\n");
     }
 
