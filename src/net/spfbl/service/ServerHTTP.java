@@ -488,6 +488,18 @@ public final class ServerHTTP extends Server {
         return User.getExact(email);
     }
 
+    private static User.Query getPanelQuery(User user, long timeKey) {
+        if (user == null) {
+            return null;
+        } else if (user.isAdmin()) {
+            // Admin listings include queries belonging to every SPFBL user.
+            // Resolve the detail through the same global scope, including history.
+            return User.getAnyQuery(timeKey);
+        } else {
+            return user.getQuerySafe(timeKey);
+        }
+    }
+
     private static String getUserEmail(HttpExchange exchange, boolean secured) {
         Headers headers = exchange.getRequestHeaders();
         String cookies = headers.getFirst("Cookie");
@@ -1425,7 +1437,7 @@ public final class ServerHTTP extends Server {
                                         code = 200;
                                         result = "";
                                     } else {
-                                        User.Query query = userLogin.getQuerySafe(timeKey);
+                                        User.Query query = getPanelQuery(userLogin, timeKey);
                                         if (query == null) {
                                             type = "text/plain";
                                             tag = "QUERY";
@@ -3559,7 +3571,7 @@ public final class ServerHTTP extends Server {
                                         code = 200;
                                         result = "";
                                     } else {
-                                        User.Query query = userLogin.getQuerySafe(queryTime);
+                                        User.Query query = getPanelQuery(userLogin, queryTime);
                                         if (query == null) {
                                             type = "text/plain";
                                             tag = "QUERY";
