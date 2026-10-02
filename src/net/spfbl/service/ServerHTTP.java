@@ -117,6 +117,8 @@ import net.spfbl.core.Client;
 import net.spfbl.core.Core;
 import net.spfbl.core.Defer;
 import static net.spfbl.core.Filterable.Filter.ABUSE_SUBMISSION;
+import static net.spfbl.core.Filterable.Filter.HOLD_BANNED;
+import static net.spfbl.core.Filterable.Filter.ORIGIN_BANNED;
 import net.spfbl.core.Peer;
 import net.spfbl.core.Period;
 import net.spfbl.core.ProcessException;
@@ -8395,6 +8397,25 @@ public final class ServerHTTP extends Server {
             }
             builder.append("</td>\n");
             builder.append("          <td>");
+            if (result.equals("WHITE") || result.equals("ACCEPT")) {
+                builder.append("✅ ");
+            } else if (result.equals("FLAG")) {
+                builder.append("⚠️ ");
+            } else if (result.equals("GREYLIST") || result.equals("LISTED")) {
+                builder.append("⏳ ");
+            } else if (result.equals("HOLD")) {
+                builder.append("⏸️ ");
+            } else if (result.equals("QUEUE")) {
+                builder.append("📥 ");
+            } else if (result.equals("SPAMTRAP") || result.equals("TRAP")) {
+                builder.append("🗑️ ");
+            } else if (result.equals("REJECT") || result.equals("BLOCK")
+                    || result.equals("BLOCKED") || result.equals("FAIL")
+                    || result.equals("FAILED") || result.equals("INVALID")
+                    || result.equals("INEXISTENT") || result.equals("NXDOMAIN")
+                    || result.equals("NXSENDER")) {
+                builder.append("⛔ ");
+            }
             if (result.equals("REJECT")) {
                 if (query.hasMalware()) {
                     if (locale.getLanguage().toLowerCase().equals("pt")) {
@@ -8456,7 +8477,15 @@ public final class ServerHTTP extends Server {
                     builder.append(recipient);
                 }
             } else if (result.equals("BLOCK") || result.equals("BLOCKED")) {
-                if (query.hasMalwareNotIgnored()) {
+                String filter = query.getFilter();
+                if (query.isFilter(ORIGIN_BANNED, HOLD_BANNED)
+                        || (filter != null && filter.startsWith("ENVELOPE_BANNED"))) {
+                    if (locale.getLanguage().toLowerCase().equals("pt")) {
+                        builder.append("Rejeitada por banimento");
+                    } else {
+                        builder.append("Rejected by ban");
+                    }
+                } else if (query.hasMalwareNotIgnored()) {
                     if (locale.getLanguage().toLowerCase().equals("pt")) {
                         builder.append("Rejeitada por segurança");
                     } else {

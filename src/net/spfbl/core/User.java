@@ -2385,26 +2385,23 @@ public class User implements Serializable, Comparable<User> {
     }
     
     public synchronized Query getQuery(long time) {
-        if (queryMap == null) {
-            return null;
-        } else {
+        if (queryMap != null) {
             Query query = queryMap.get(time);
             if (query != null) {
                 return query;
-            } else if (isAdmin()) {
-                for (User user : User.getUserList()) {
-                    if (user.queryMap != null) {
-                        query = user.queryMap.get(time);
-                        if (query != null) {
-                            return query;
-                        }
-                    }
-                }
-                return null;
-            } else {
-                return null;
             }
         }
+        if (isAdmin()) {
+            for (User user : User.getUserList()) {
+                if (user.queryMap != null) {
+                    Query query = user.queryMap.get(time);
+                    if (query != null) {
+                        return query;
+                    }
+                }
+            }
+        }
+        return null;
     } 
     
     public synchronized TreeSet<Long> getTimeKeySet() {
