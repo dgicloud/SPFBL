@@ -2986,12 +2986,7 @@ public final class ServerHTTP extends Server {
                                 }
                             }
                         } else if (request.equals("GET")) {
-                            if (command.equals("/favicon.ico")) {
-                                type = "text/plain";
-                                tag = "HTTPC";
-                                code = 403;
-                                result = "Forbidden\n";
-                            } else if (command.equals("/robots.txt")) {
+                            if (command.equals("/robots.txt")) {
                                 type = "text/plain";
                                 tag = "HTTPC";
                                 code = 403;
@@ -3591,6 +3586,8 @@ public final class ServerHTTP extends Server {
                                     type = "image/png";
                                 } else if (file.getName().endsWith(".gif")) {
                                     type = "image/gif";
+                                } else if (file.getName().endsWith(".ico")) {
+                                    type = "image/x-icon";
                                 } else if (file.getName().endsWith(".css")) {
                                     type = "text/css";
                                 } else if (file.getName().endsWith(".txt")) {
