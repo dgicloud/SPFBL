@@ -365,7 +365,17 @@ def parse_local_header_record(raw: bytes) -> HeaderMessage:
     if len(fields) not in (11, 21):
         raise InputError("invalid_header_record_shape")
     try:
-        values = [field.decode("utf-8") for field in fields]
+        # Control fields and the normalized Exim signals are protocol data and
+        # must remain strict. RFC message-header text can contain legacy 8-bit
+        # octets; preserve the record and replace only invalid sequences there.
+        strict_indexes = {0, 1, 2, 7}
+        if len(fields) == 21:
+            strict_indexes.update(range(11, 21))
+        values = [
+            field.decode("utf-8") if index in strict_indexes
+            else field.decode("utf-8", errors="replace")
+            for index, field in enumerate(fields)
+        ]
     except UnicodeDecodeError as exc:
         raise InputError("invalid_local_record_encoding") from exc
     if values[0] != "HEADER":

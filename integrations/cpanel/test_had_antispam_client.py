@@ -207,6 +207,26 @@ class HeaderProtocolTests(unittest.TestCase):
         self.assertEqual(message.tickets, ("ticket-one", "ticket-two"))
         self.assertEqual(message.queue_id, "queue-1")
 
+    def test_local_header_record_replaces_legacy_bytes_in_header_text(self):
+        fields = [
+            b"HEADER", b"ticket-one", b"example.test", b"Sender <sender@example.test>",
+            b"reply@example.test", b"<message-1@example.test>", b"", b"queue-1",
+            b"Fri, 02 Oct 2026", b"<mailto:unsubscribe@example.test>",
+            b"Quarterly caf\xe9 report",
+        ]
+        message = parse_local_header_record(LOCAL_FIELD_SEPARATOR.join(fields))
+        self.assertEqual(message.subject, "Quarterly caf\ufffd report")
+        self.assertIn(b"Subject:Quarterly caf\xef\xbf\xbd report\n", serialize_header(message))
+
+    def test_local_header_record_keeps_ticket_encoding_strict(self):
+        fields = [
+            b"HEADER", b"\xff", b"example.test", b"Sender <sender@example.test>",
+            b"reply@example.test", b"<message-1@example.test>", b"", b"queue-1",
+            b"Fri, 02 Oct 2026", b"<mailto:unsubscribe@example.test>", b"Quarterly report",
+        ]
+        with self.assertRaisesRegex(ValueError, "invalid_local_record_encoding"):
+            parse_local_header_record(LOCAL_FIELD_SEPARATOR.join(fields))
+
     def test_local_header_record_normalizes_optional_technical_signals(self):
         base = (
             "HEADER", "a" * 44, "example.test", "Sender <sender@example.test>",
@@ -606,7 +626,7 @@ class LocalSocketServiceTests(unittest.TestCase):
                     self.assertTrue(header_response.startswith(b"CONTINUE|header|CLEAR|"), header_response)
                     no_ticket_record = header_record.replace(
                         b"HEADER\x1fsynthetic-ticket", b"HEADER\x1f"
-                    )
+                    ).replace(b"Smoke test", b"Smoke caf\xe9 test")
                     no_ticket_response = send_local(no_ticket_record)
                     self.assertTrue(
                         no_ticket_response.startswith(b"CONTINUE|header|no_ticket|"),
