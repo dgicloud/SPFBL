@@ -26,6 +26,7 @@
 # HADCloud adaptation: route all SPFBL checks to the HADCloud SPFBL server.
 # The upstream client/ACL behavior remains intact; only the query endpoint changes.
 HAD_SPFBL_SERVER_IP="151.242.41.35"
+HAD_ACL_RAW_BASE="https://raw.githubusercontent.com/dgicloud/SPFBL/hadcloud-cpanel-installer/client"
 
 function configure_query_server_client() {
     local client_script="$1"
@@ -187,9 +188,9 @@ function install() {
         /usr/local/bin/clamav-unofficial-sigs.sh --install-cron --install-logrotate
 
         # Install SPFBL configuration files.
-        wget https://raw.githubusercontent.com/leonamp/SPFBL/master/client/spfbl_end_recipient -O /usr/local/cpanel/etc/exim/acls/ACL_RECIPIENT_BLOCK/spfbl_end_recipient
+        wget "$HAD_ACL_RAW_BASE/spfbl_end_recipient" -O /usr/local/cpanel/etc/exim/acls/ACL_RECIPIENT_BLOCK/spfbl_end_recipient
         wget https://raw.githubusercontent.com/leonamp/SPFBL/master/client/spfbl_begin_smtp_dkim -O /usr/local/cpanel/etc/exim/acls/ACL_SMTP_DKIM_BLOCK/spfbl_begin_smtp_dkim
-        wget https://raw.githubusercontent.com/leonamp/SPFBL/master/client/spfbl_begin_check_message_pre -O /usr/local/cpanel/etc/exim/acls/ACL_CHECK_MESSAGE_PRE_BLOCK/spfbl_begin_check_message_pre
+        wget "$HAD_ACL_RAW_BASE/spfbl_begin_check_message_pre" -O /usr/local/cpanel/etc/exim/acls/ACL_CHECK_MESSAGE_PRE_BLOCK/spfbl_begin_check_message_pre
 
         # Config Exim Configuration Manager interface.
         exim_configuration "spfbl_end_recipient" "1"
@@ -261,9 +262,9 @@ function update() {
     configure_query_server_client /usr/local/bin/spfbl || exit 1
 
         # Replace SPFBL configuration files
-        wget https://raw.githubusercontent.com/leonamp/SPFBL/master/client/spfbl_end_recipient -O /usr/local/cpanel/etc/exim/acls/ACL_RECIPIENT_BLOCK/spfbl_end_recipient
+        wget "$HAD_ACL_RAW_BASE/spfbl_end_recipient" -O /usr/local/cpanel/etc/exim/acls/ACL_RECIPIENT_BLOCK/spfbl_end_recipient
         wget https://raw.githubusercontent.com/leonamp/SPFBL/master/client/spfbl_begin_smtp_dkim -O /usr/local/cpanel/etc/exim/acls/ACL_SMTP_DKIM_BLOCK/spfbl_begin_smtp_dkim
-        wget https://raw.githubusercontent.com/leonamp/SPFBL/master/client/spfbl_begin_check_message_pre -O /usr/local/cpanel/etc/exim/acls/ACL_CHECK_MESSAGE_PRE_BLOCK/spfbl_begin_check_message_pre
+        wget "$HAD_ACL_RAW_BASE/spfbl_begin_check_message_pre" -O /usr/local/cpanel/etc/exim/acls/ACL_CHECK_MESSAGE_PRE_BLOCK/spfbl_begin_check_message_pre
 
         # Config Exim Configuration Manager interface.
         exim_configuration "spfbl_end_recipient" "1"

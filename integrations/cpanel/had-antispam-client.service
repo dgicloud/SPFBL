@@ -1,0 +1,33 @@
+[Unit]
+Description=HAD AntiSpam cPanel client in MONITOR mode
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=mailnull
+Group=mail
+RuntimeDirectory=had-antispam
+RuntimeDirectoryMode=0750
+UMask=0007
+EnvironmentFile=/etc/had-antispam/client.conf
+ExecStart=/usr/bin/python3 /usr/local/libexec/had-antispam/had_antispam_client.py --listen-socket /run/had-antispam/monitor.sock
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/run/had-antispam
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+
+[Install]
+WantedBy=multi-user.target
