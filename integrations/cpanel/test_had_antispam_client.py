@@ -32,6 +32,7 @@ from had_antispam_client import (
     submit_header,
     LOCAL_FIELD_SEPARATOR,
 )
+import spfbl_client
 
 
 class _ReplyHandler(socketserver.StreamRequestHandler):
@@ -142,14 +143,27 @@ class EnvelopeProtocolTests(unittest.TestCase):
 
     def test_local_response_is_compact_and_contains_no_ticket_value(self) -> None:
         result = QueryResult("MONITOR", "continue", "decision", "FLAG", True, 17)
-        self.assertEqual(format_local_result(result), b"CONTINUE|decision|FLAG|17|-")
+        self.assertEqual(format_local_result(result), b"CONTINUE|decision|FLAG|17|-|-")
 
     def test_local_response_forwards_valid_ticket_but_json_does_not(self) -> None:
         ticket = "a" * 44
         result = QueryResult("MONITOR", "continue", "decision", "PASS", True, 9, ticket)
 
-        self.assertEqual(format_local_result(result), ("CONTINUE|decision|PASS|9|" + ticket).encode("ascii"))
+        self.assertEqual(
+            format_local_result(result),
+            ("CONTINUE|decision|PASS|9|" + ticket + "|PASS " + ticket).encode("ascii"),
+        )
         self.assertNotIn(ticket, json.dumps(result.as_dict()))
+
+    def test_non_feedback_qualifier_never_exports_feedback_value(self) -> None:
+        ticket = "a" * 44
+        result = QueryResult("MONITOR", "continue", "decision", "FAIL", True, 9, ticket)
+        self.assertEqual(format_local_result(result).split(b"|")[-2], ticket.encode("ascii"))
+        self.assertEqual(format_local_result(result).split(b"|")[-1], b"-")
+
+    def test_short_ticket_is_not_exposed_as_a_feedback_token(self) -> None:
+        result = QueryResult("MONITOR", "continue", "decision", "PASS", True, 9, "short")
+        self.assertEqual(format_local_result(result).split(b"|")[-1], b"-")
 
 
 def sample_header(**overrides):
@@ -192,6 +206,59 @@ class HeaderProtocolTests(unittest.TestCase):
         message = parse_local_header_record(record)
         self.assertEqual(message.tickets, ("ticket-one", "ticket-two"))
         self.assertEqual(message.queue_id, "queue-1")
+
+    def test_local_header_record_normalizes_optional_technical_signals(self):
+        base = (
+            "HEADER", "a" * 44, "example.test", "Sender <sender@example.test>",
+            "reply@example.test", "<message-1@example.test>", "", "queue-1",
+            "Fri, 02 Oct 2026", "<mailto:unsubscribe@example.test>", "Quarterly report",
+        )
+        signals = (
+            "pass", "pass:pass", "accept", "yes", "no", "FLAG", "",
+            "", "true", "false",
+        )
+        record = LOCAL_FIELD_SEPARATOR.join(value.encode("utf-8") for value in base + signals)
+        message = parse_local_header_record(record)
+        self.assertEqual(message.technical_metadata["spf"], "pass")
+        self.assertEqual(message.technical_metadata["dkim"], "pass")
+        self.assertEqual(message.technical_metadata["spfbl"], "flag")
+        self.assertTrue(message.technical_metadata["authenticated_smtp"])
+        self.assertFalse(message.technical_metadata["smtp_tls"])
+        self.assertIsNone(message.technical_metadata["reverse_dns_valid"])
+        self.assertNotIn(b"spf=pass", serialize_header(message))
+
+    def test_technical_signal_event_is_local_pseudonymous_and_feedback_scoped(self):
+        message = sample_header(
+            tickets="a" * 44,
+            technical_snapshot={
+                "spf_result": "pass",
+                "dkim_verify_status": "pass",
+                "dmarc_status": "accept",
+                "dmarc_alignment_spf": "yes",
+                "dmarc_alignment_dkim": "yes",
+                "spfbl_decision": "PASS",
+                "rspamd_bucket": "",
+                "reverse_dns_valid": "",
+                "authenticated_smtp": "false",
+                "tls_in_cipher": "true",
+            },
+        )
+        fake_syslog = type("Syslog", (), {"LOG_NOTICE": 5, "events": [],
+                                          "syslog": lambda self, level, value: self.events.append(value)})()
+        with patch.object(spfbl_client, "load_metadata_key", return_value=b"k" * 32):
+            with patch.dict("sys.modules", {"syslog": fake_syslog}):
+                self.assertTrue(spfbl_client._emit_header_signal_event(message))
+        self.assertEqual(len(fake_syslog.events), 1)
+        event = fake_syslog.events[0]
+        self.assertIn("had-antispam-signals signal_id=", event)
+        self.assertIn("spf=pass", event)
+        self.assertNotIn("a" * 44, event)
+        self.assertNotIn("sender@example.test", event)
+        self.assertNotIn("Quarterly report", event)
+
+        multiple_tickets = sample_header(tickets="a" * 44 + ";" + "b" * 44)
+        multiple_tickets.technical_metadata = message.technical_metadata
+        self.assertFalse(spfbl_client._emit_header_signal_event(multiple_tickets))
 
     def test_header_values_are_flattened_and_reserved_markers_rejected(self):
         flattened = sample_header(subject="line one\r\nline two")
@@ -278,7 +345,8 @@ class QueryTests(unittest.TestCase):
                 TransportConfig(server_ip="127.0.0.1", port=server.server_address[1]),
             )
         self.assertEqual(result.ticket, ticket)
-        self.assertEqual(format_local_result(result).split(b"|")[-1], ticket.encode("ascii"))
+        self.assertEqual(format_local_result(result).split(b"|")[-2], ticket.encode("ascii"))
+        self.assertEqual(format_local_result(result).split(b"|")[-1], ("PASS " + ticket).encode("ascii"))
 
     def test_appeal_url_is_not_forwarded_as_feedback_ticket(self) -> None:
         with reply_server(b"BLOCKED https://matrix.example.test/unblock/token-123\n") as server:
@@ -465,10 +533,12 @@ class QueryTests(unittest.TestCase):
         source_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         entrypoint = os.path.join(source_dir, "cpanel", "had_antispam_client.py")
         shared_client = os.path.join(source_dir, "common", "spfbl_client.py")
+        shared_signals = os.path.join(source_dir, "common", "technical_signals.py")
         with tempfile.TemporaryDirectory(prefix="had-antispam-installed-client-") as directory:
             installed_entrypoint = os.path.join(directory, "had_antispam_client.py")
             shutil.copyfile(entrypoint, installed_entrypoint)
             shutil.copyfile(shared_client, os.path.join(directory, "spfbl_client.py"))
+            shutil.copyfile(shared_signals, os.path.join(directory, "technical_signals.py"))
             result = subprocess.run(
                 [sys.executable, installed_entrypoint, "--help"],
                 stdout=subprocess.PIPE,

@@ -15,6 +15,15 @@ import time
 from pathlib import Path
 from typing import Any, BinaryIO, Dict, List, Optional, Tuple
 
+from technical_signals import (
+    EXIM_SIGNAL_FIELDS,
+    MANUAL_FEEDBACK_DECISIONS,
+    SignalError,
+    format_signal_event,
+    load_metadata_key,
+    normalize_exim_signals,
+)
+
 
 MAX_INPUT_BYTES = 4096
 MAX_LOCAL_RECORD_BYTES = 24576
@@ -39,7 +48,11 @@ DECISIONS = DECISIONS_WITH_OPTIONAL_TICKET | DECISIONS_WITHOUT_ARGUMENT
 DECISIONS_WITH_FEEDBACK_TICKET = frozenset(
     {"PASS", "WHITE", "FLAG", "HOLD", "FAIL", "SOFTFAIL", "NEUTRAL", "NONE"}
 )
+DECISIONS_WITH_MANUAL_FEEDBACK = frozenset(
+    {"PASS", "WHITE", "FLAG", "HOLD", "SOFTFAIL", "NEUTRAL", "NONE"}
+)
 TICKET_TOKEN = re.compile(r"^[A-Za-z0-9_-]{1,512}$")
+FEEDBACK_TICKET_TOKEN = re.compile(r"^[A-Za-z0-9_-]{44,512}$")
 HEADER_MARKER = re.compile(
     r"(?:^| )(?:DKIM|From|Reply-To|ReplyTo|Message-ID|In-Reply-To|Queue-ID|Date|List-Unsubscribe|Subject):",
     re.IGNORECASE,
@@ -131,11 +144,11 @@ class Envelope:
 class HeaderMessage:
     __slots__ = (
         "tickets", "dkim", "from_header", "reply_to", "message_id", "in_reply_to",
-        "queue_id", "date", "list_unsubscribe", "subject",
+        "queue_id", "date", "list_unsubscribe", "subject", "technical_metadata",
     )
 
     def __init__(self, tickets, dkim, from_header, reply_to, message_id, in_reply_to,
-                 queue_id, date, list_unsubscribe, subject):
+                 queue_id, date, list_unsubscribe, subject, technical_metadata=None):
         self.tickets = tickets
         self.dkim = dkim
         self.from_header = from_header
@@ -146,10 +159,11 @@ class HeaderMessage:
         self.date = date
         self.list_unsubscribe = list_unsubscribe
         self.subject = subject
+        self.technical_metadata = technical_metadata
 
     @classmethod
     def from_values(cls, tickets, dkim, from_header, reply_to, message_id, in_reply_to,
-                    queue_id, date, list_unsubscribe, subject):
+                    queue_id, date, list_unsubscribe, subject, technical_snapshot=None):
         if not isinstance(tickets, str) or len(tickets) > MAX_HEADER_FIELD_BYTES:
             raise InputError("invalid_header_ticket_set")
         ticket_values = []
@@ -172,7 +186,14 @@ class HeaderMessage:
             values.append(_header_value(name, value))
         if not any(values[index] for index in (1, 2, 3, 6, 7, 8)):
             raise InputError("header_metadata_missing")
-        return cls(tuple(ticket_values), *values)
+        try:
+            technical_metadata = (
+                None if technical_snapshot is None
+                else normalize_exim_signals(technical_snapshot)
+            )
+        except SignalError as exc:
+            raise InputError("invalid_header_technical_signals") from exc
+        return cls(tuple(ticket_values), *values, technical_metadata)
 
 
 class HeaderResult:
@@ -341,7 +362,7 @@ def parse_local_header_record(raw: bytes) -> HeaderMessage:
     if not raw or len(raw) > MAX_LOCAL_RECORD_BYTES:
         raise InputError("invalid_local_record_size")
     fields = raw.split(LOCAL_FIELD_SEPARATOR)
-    if len(fields) != 11:
+    if len(fields) not in (11, 21):
         raise InputError("invalid_header_record_shape")
     try:
         values = [field.decode("utf-8") for field in fields]
@@ -349,7 +370,10 @@ def parse_local_header_record(raw: bytes) -> HeaderMessage:
         raise InputError("invalid_local_record_encoding") from exc
     if values[0] != "HEADER":
         raise InputError("invalid_header_record_type")
-    return HeaderMessage.from_values(*values[1:])
+    technical_snapshot = None
+    if len(values) == 21:
+        technical_snapshot = dict(zip(EXIM_SIGNAL_FIELDS, values[11:]))
+    return HeaderMessage.from_values(*values[1:11], technical_snapshot=technical_snapshot)
 
 
 def serialize_header(message: HeaderMessage) -> bytes:
@@ -405,8 +429,15 @@ def format_local_result(result: QueryResult) -> bytes:
     """Return a bounded response; the final field is secret message state."""
     decision = result.decision or "-"
     ticket = result.ticket or "-"
+    feedback = "-"
+    if (
+        result.decision in DECISIONS_WITH_MANUAL_FEEDBACK
+        and result.ticket
+        and FEEDBACK_TICKET_TOKEN.fullmatch(result.ticket)
+    ):
+        feedback = result.decision + " " + result.ticket
     return (
-        f"CONTINUE|{result.status}|{decision}|{result.latency_ms}|{ticket}".encode("ascii")
+        f"CONTINUE|{result.status}|{decision}|{result.latency_ms}|{ticket}|{feedback}".encode("ascii")
     )
 
 
@@ -451,6 +482,7 @@ async def serve_local_socket(path: str, config: TransportConfig) -> None:
                     _emit_event(result)
                 else:
                     if raw.startswith(b"HEADER" + LOCAL_FIELD_SEPARATOR):
+                        signals_recorded = False
                         try:
                             message = parse_local_header_record(raw)
                         except InputError as exc:
@@ -459,6 +491,7 @@ async def serve_local_socket(path: str, config: TransportConfig) -> None:
                             if not message.tickets:
                                 header_result = HeaderResult("no_ticket", _elapsed_ms(started))
                             else:
+                                signals_recorded = _emit_header_signal_event(message)
                                 try:
                                     await asyncio.wait_for(semaphore.acquire(), timeout=0.05)
                                 except asyncio.TimeoutError:
@@ -473,7 +506,7 @@ async def serve_local_socket(path: str, config: TransportConfig) -> None:
                                         semaphore.release()
                         writer.write(format_local_header_result(header_result))
                         await writer.drain()
-                        _emit_header_event(header_result)
+                        _emit_header_event(header_result, signals_recorded)
                     else:
                         try:
                             envelope = parse_local_record(raw)
@@ -553,7 +586,7 @@ def _emit_event(result: QueryResult) -> None:
     print(json.dumps(event, separators=(",", ":")), file=sys.stderr, flush=True)
 
 
-def _emit_header_event(result: HeaderResult) -> None:
+def _emit_header_event(result: HeaderResult, signals_recorded=False) -> None:
     event = {
         "event": "had_antispam_header",
         "mode": "MONITOR",
@@ -562,8 +595,27 @@ def _emit_header_event(result: HeaderResult) -> None:
         "ticket_count": result.ticket_count,
         "latency_ms": result.latency_ms,
         "connect_attempts": result.connect_attempts,
+        "signals_recorded": bool(signals_recorded),
     }
     print(json.dumps(event, separators=(",", ":")), file=sys.stderr, flush=True)
+
+
+def _emit_header_signal_event(message: HeaderMessage) -> bool:
+    """Persist only normalized signals for a single manual-feedback ticket."""
+    metadata = message.technical_metadata
+    if (not isinstance(metadata, dict) or len(message.tickets) != 1
+            or metadata.get("spfbl") not in MANUAL_FEEDBACK_DECISIONS):
+        return False
+    try:
+        event = format_signal_event(
+            message.tickets[0], load_metadata_key(), metadata
+        )
+        import syslog
+        syslog.syslog(syslog.LOG_NOTICE, event)
+        return True
+    except (SignalError, ImportError, OSError):
+        # Telemetry is optional and must never affect the existing SPFBL flow.
+        return False
 
 
 def serialize_query(envelope: Envelope) -> bytes:

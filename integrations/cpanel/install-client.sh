@@ -50,7 +50,7 @@ except ValueError:
     raise SystemExit("HAD AntiSpam cPanel: --server deve ser IP literal.")
 PY
 
-for file in "$HERE/had_antispam_client.py" "$ROOT/integrations/common/spfbl_client.py" "$HERE/had-antispam-client.service"; do
+for file in "$HERE/had_antispam_client.py" "$HERE/had_antispam_feedback.py" "$ROOT/integrations/common/spfbl_client.py" "$ROOT/integrations/common/technical_signals.py" "$HERE/had-antispam-client.service"; do
     [[ -r "$file" ]] || fail "arquivo de instalação ausente: $file"
 done
 
@@ -73,13 +73,18 @@ PY
 STATE=/var/lib/had-antispam-client
 [[ ! -e /etc/systemd/system/had-antispam-client.service ]] || fail "cliente HAD direto já instalado; use update-client.sh ou rollback-client.sh."
 [[ ! -e /etc/had-antispam/client.conf ]] || fail "/etc/had-antispam/client.conf já existe; preservado, instalação cancelada."
+FEEDBACK_CLI=/usr/local/sbin/had-antispam-feedback
+[[ ! -e "$FEEDBACK_CLI" && ! -L "$FEEDBACK_CLI" ]] || fail "$FEEDBACK_CLI já existe; preservado, instalação cancelada."
 install -d -o root -g root -m 0750 "$STATE" /etc/had-antispam /usr/local/libexec/had-antispam
 chmod 0755 /usr/local/libexec/had-antispam
 LIBEXEC=/usr/local/libexec/had-antispam
 HAD_PREVIOUS_ENTRYPOINT=0
 HAD_PREVIOUS_MODULE=0
+HAD_PREVIOUS_SIGNALS_MODULE=0
+HAD_METADATA_KEY_CREATED=0
 HAD_INSTALLED_RCPT_ACL=0
 HAD_INSTALLED_DATA_ACL=0
+HAD_INSTALLED_FEEDBACK=0
 if [[ -e "$LIBEXEC/had_antispam_client.py" ]]; then
     cp -a "$LIBEXEC/had_antispam_client.py" "$STATE/had_antispam_client.py.backup"
     HAD_PREVIOUS_ENTRYPOINT=1
@@ -87,6 +92,15 @@ fi
 if [[ -e "$LIBEXEC/spfbl_client.py" ]]; then
     cp -a "$LIBEXEC/spfbl_client.py" "$STATE/spfbl_client.py.backup"
     HAD_PREVIOUS_MODULE=1
+fi
+if [[ -e "$LIBEXEC/technical_signals.py" ]]; then
+    cp -a "$LIBEXEC/technical_signals.py" "$STATE/technical_signals.py.backup"
+    HAD_PREVIOUS_SIGNALS_MODULE=1
+fi
+if [[ -e /etc/had-antispam/signals-hmac.key || -L /etc/had-antispam/signals-hmac.key ]]; then
+    HAD_METADATA_KEY_CREATED=0
+else
+    HAD_METADATA_KEY_CREATED=1
 fi
 if systemctl is-active --quiet had-antispam-dev-adapter.service || systemctl is-enabled --quiet had-antispam-dev-adapter.service; then
     printf '%s\n' yes > "$STATE/restore-dev-stack"
@@ -116,6 +130,18 @@ rollback() {
         else
             rm -f "$LIBEXEC/spfbl_client.py"
         fi
+        if (( HAD_PREVIOUS_SIGNALS_MODULE )); then
+            cp -a "$STATE/technical_signals.py.backup" "$LIBEXEC/technical_signals.py"
+        else
+            rm -f "$LIBEXEC/technical_signals.py"
+        fi
+        if (( HAD_METADATA_KEY_CREATED )); then
+            rm -f /etc/had-antispam/signals-hmac.key
+        fi
+        if (( HAD_INSTALLED_FEEDBACK )); then
+            rm -f "$FEEDBACK_CLI"
+            rm -f "$STATE/had-antispam-feedback.sha256"
+        fi
         systemctl daemon-reload >/dev/null 2>&1 || true
         if [[ -e "$STATE/restore-dev-stack" ]]; then
             systemctl enable had-antispam-dev-tunnel.service had-antispam-dev-adapter.service >/dev/null 2>&1 || true
@@ -132,6 +158,15 @@ systemctl stop had-antispam-dev-adapter.service had-antispam-dev-tunnel.service 
 systemctl disable had-antispam-dev-adapter.service had-antispam-dev-tunnel.service >/dev/null 2>&1 || true
 install -o root -g root -m 0644 "$HERE/had_antispam_client.py" /usr/local/libexec/had-antispam/had_antispam_client.py
 install -o root -g root -m 0644 "$ROOT/integrations/common/spfbl_client.py" /usr/local/libexec/had-antispam/spfbl_client.py
+install -o root -g root -m 0644 "$ROOT/integrations/common/technical_signals.py" /usr/local/libexec/had-antispam/technical_signals.py
+chown root:mail /etc/had-antispam
+chmod 0750 /etc/had-antispam
+PYTHONPATH=/usr/local/libexec/had-antispam python3 -c 'from technical_signals import ensure_metadata_key; ensure_metadata_key()'
+HAD_INSTALLED_FEEDBACK=1
+install -o root -g root -m 0750 "$HERE/had_antispam_feedback.py" "$FEEDBACK_CLI"
+sha256sum "$FEEDBACK_CLI" | awk '{print $1}' > "$STATE/had-antispam-feedback.sha256"
+chown root:root "$STATE/had-antispam-feedback.sha256"
+chmod 0600 "$STATE/had-antispam-feedback.sha256"
 printf 'HAD_SPFBL_HOST=%s\nHAD_SPFBL_PORT=%s\n' "$SERVER" "$PORT" > /etc/had-antispam/client.conf
 chown root:root /etc/had-antispam/client.conf
 chmod 0600 /etc/had-antispam/client.conf
@@ -155,4 +190,5 @@ fi
 trap - EXIT
 echo "Adapter HAD MONITOR consultando ${SERVER}:${PORT}; fail-open ativo."
 echo "Hooks RCPT e DATA/HEADER permanecem em MONITOR; respostas SPFBL não alteram aceite Exim."
+echo "Feedback manual: had-antispam-feedback {spam|ham} mensagem.eml | {report|dataset} - (stdin)"
 echo "ADMIN TCP 9875 não é usado pelo cPanel. Para retornar ao túnel de homologação: bash $HERE/rollback-client.sh"
