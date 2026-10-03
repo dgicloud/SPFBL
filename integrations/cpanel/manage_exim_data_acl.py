@@ -28,6 +28,8 @@ from manage_exim_acl import (
     restore,
     run_command,
     run_dry_build,
+    read_cpanel_option,
+    set_cpanel_option,
     sha256,
     snapshot_state,
     verify_exim_source_unchanged,
@@ -38,6 +40,7 @@ from manage_exim_acl import (
 BEGIN = b"# BEGIN HAD-ANTISPAM-HEADER-MONITOR"
 END = b"# END HAD-ANTISPAM-HEADER-MONITOR"
 HOOK = "/usr/local/cpanel/etc/exim/acls/ACL_CHECK_MESSAGE_PRE_BLOCK/custom_begin_check_message_pre"
+LOCALOPTS_KEY = "acl_custom_begin_check_message_pre"
 STATE = "/var/lib/had-antispam/cpanel-data-acl/current"
 ARCHIVE = "/var/lib/had-antispam/cpanel-data-acl/archive"
 TEST_RECIPIENT_RE = re.compile(
@@ -168,20 +171,29 @@ def validate(paths=None, runner=run_command, preflight=True):
     with exclusive_lock(paths.lock):
         current = read_optional(paths.hook)
         metadata = file_metadata(paths.hook)
-        atomic_write(paths.hook, compose_hook(current, snippet), metadata)
+        original_option = read_cpanel_option(paths.exim_localopts, LOCALOPTS_KEY)
         try:
+            set_cpanel_option(paths, LOCALOPTS_KEY, "1",
+                              allowed_current=(original_option, "1"))
+            atomic_write(paths.hook, compose_hook(current, snippet), metadata)
             output = run_dry_build(paths, runner=runner)
         finally:
             restore(paths.hook, current, metadata)
+            set_cpanel_option(paths, LOCALOPTS_KEY, original_option,
+                              allowed_current=(original_option, "1"))
         if read_optional(paths.hook) != current:
             raise ManagerError("Validação DATA não restaurou o hook original byte a byte")
         return output
 
 
 def rollback_install(paths, original, metadata, manifest, runner, reload_exim=False):
+    verify_exim_source_unchanged(paths, manifest)
     restore(paths.hook, original, metadata)
+    option = manifest.get("managed_localopts_option")
+    if option:
+        set_cpanel_option(paths, option["key"], option["before"],
+                          allowed_current=(option["before"], option["active"]))
     if manifest.get("status") == "installing" and hash_file(paths.exim) != manifest.get("exim_sha256_before"):
-        verify_exim_source_unchanged(paths, manifest)
         run_full_build(paths, runner=runner, expect_data=False,
                        expect_rcpt=manifest.get("rcpt_marker_before"))
         if hash_file(paths.exim) != manifest.get("exim_sha256_before"):
@@ -205,6 +217,8 @@ def install(paths=None, runner=run_command, reload_exim=False, preflight=True,
         if span:
             if compose_hook(current, snippet) != current:
                 raise ManagerError("Bloco DATA HAD divergente; instalação interrompida")
+            if read_cpanel_option(paths.exim_localopts, LOCALOPTS_KEY) != "1":
+                raise ManagerError("Bloco DATA existe, mas acl_custom_begin_check_message_pre está desativado; revisão do snapshot necessária")
             run_dry_build(paths, runner=runner)
             if reload_exim:
                 run_full_build(paths, runner=runner, expect_data=True,
@@ -214,12 +228,16 @@ def install(paths=None, runner=run_command, reload_exim=False, preflight=True,
                 runner([paths.restart_exim])
             return "already-installed"
 
-        manifest = snapshot_state(paths, current, metadata, snippet)
+        manifest = snapshot_state(paths, current, metadata, snippet,
+                                  managed_option=LOCALOPTS_KEY)
         manifest["rcpt_marker_before"] = has_rcpt_block(read_optional(paths.exim))
         write_manifest(paths, manifest)
         ensure_snapshot_permissions(paths)
         reload_attempted = False
         try:
+            option = manifest["managed_localopts_option"]
+            set_cpanel_option(paths, option["key"], option["active"],
+                              allowed_current=(option["before"], option["active"]))
             atomic_write(paths.hook, compose_hook(current, snippet), metadata)
             run_dry_build(paths, runner=runner)
             run_full_build(paths, runner=runner, expect_data=True,
@@ -266,8 +284,13 @@ def uninstall(paths=None, runner=run_command, reload_exim=False, preflight=True)
             raise ManagerError("Bloco DATA mudou; snapshot mantido sem sobrescrever alterações")
         original = load_original(paths, manifest)
         candidate = remove_hook_block(current)
+        verify_exim_source_unchanged(paths, manifest)
         try:
             restore(paths.hook, candidate if candidate else None, metadata)
+            option = manifest.get("managed_localopts_option")
+            if option:
+                set_cpanel_option(paths, option["key"], option["before"],
+                                  allowed_current=(option["before"], option["active"]))
             run_dry_build(paths, runner=runner)
             run_full_build(paths, runner=runner, expect_data=False,
                            expect_rcpt=rcpt_before)
@@ -291,6 +314,10 @@ def uninstall(paths=None, runner=run_command, reload_exim=False, preflight=True)
         except Exception as exc:
             try:
                 restore(paths.hook, current, metadata)
+                option = manifest.get("managed_localopts_option")
+                if option:
+                    set_cpanel_option(paths, option["key"], option["active"],
+                                      allowed_current=(option["before"], option["active"]))
                 run_full_build(paths, runner=runner, expect_data=True,
                                expect_rcpt=rcpt_before)
                 if reload_exim:

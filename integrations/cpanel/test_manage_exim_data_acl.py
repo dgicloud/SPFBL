@@ -4,7 +4,7 @@ import tempfile
 import unittest
 
 from manage_exim_acl import BEGIN as RCPT_BEGIN, END as RCPT_END, Paths as RcptPaths
-from manage_exim_acl import ManagerError
+from manage_exim_acl import DEFAULT_LOCALOPTS_KEY, ManagerError
 from manage_exim_data_acl import (
     BEGIN,
     END,
@@ -21,6 +21,7 @@ class FakeDataCpanel(object):
         self.rcpt_paths = RcptPaths(paths.root)
         self.commands = []
         self.inputs = []
+        self.dry_option_values = []
         self.fail_dry = False
         self.fail_smoke = False
 
@@ -30,10 +31,16 @@ class FakeDataCpanel(object):
         if command[0] == self.paths.builder and "--acl_dry_run" in command:
             if self.fail_dry:
                 raise ManagerError("fake DATA dry-run failure")
+            self.dry_option_values.append(
+                self.option_value("acl_custom_begin_check_message_pre"))
             return "Dry Run ok\n"
         if command[0] == self.paths.builder:
             rcpt = self._read(self.rcpt_paths.hook) or b""
             data = self._read(self.paths.hook) or b""
+            if self.option_value(DEFAULT_LOCALOPTS_KEY) != "1":
+                rcpt = b""
+            if self.option_value("acl_custom_begin_check_message_pre") != "1":
+                data = b""
             with open(self.paths.exim, "wb") as stream:
                 stream.write(b"BASELINE\n" + rcpt + data)
             return "Configuration file passes test!\n"
@@ -46,6 +53,13 @@ class FakeDataCpanel(object):
         if command[0] == self.paths.restart_exim:
             return "restart fake success\n"
         raise AssertionError("Unexpected command: {0}".format(command))
+
+    def option_value(self, key):
+        with open(self.paths.exim_localopts, "rb") as stream:
+            for line in stream:
+                if line.startswith(key.encode("ascii") + b"="):
+                    return line.split(b"=", 1)[1].strip().decode("ascii")
+        raise AssertionError("cPanel ACL option missing from fixture: " + key)
 
     @staticmethod
     def _read(path):
@@ -69,6 +83,11 @@ class EximDataAclManagerTests(unittest.TestCase):
             os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, "wb") as stream:
                 stream.write(b"")
+        with open(self.paths.exim_localopts, "wb") as stream:
+            stream.write(b"acl_custom_begin_check_message_pre=0\n")
+            stream.write(DEFAULT_LOCALOPTS_KEY.encode("ascii") + b"=0\n")
+            stream.write(b"keep_this_option=1\n")
+        self.localopts_baseline = self.read_file(self.paths.exim_localopts)
         with open(self.paths.exim, "wb") as stream:
             stream.write(b"BASELINE\n")
         self.baseline = self.read_file(self.paths.exim)
@@ -86,6 +105,8 @@ class EximDataAclManagerTests(unittest.TestCase):
         before = self.read_file(self.paths.hook)
         validate(self.paths, runner=self.runner, preflight=False)
         self.assertEqual(self.read_file(self.paths.hook), before)
+        self.assertEqual(self.read_file(self.paths.exim_localopts), self.localopts_baseline)
+        self.assertEqual(["1"], self.runner.dry_option_values)
         self.assertEqual(self.read_file(self.paths.exim), self.baseline)
         self.assertEqual(self.runner.commands, [[self.paths.builder, "--acl_dry_run"]])
 
@@ -95,12 +116,20 @@ class EximDataAclManagerTests(unittest.TestCase):
         )
         with open(self.rcpt_paths.hook, "wb") as stream:
             stream.write(rcpt)
+        with open(self.paths.exim_localopts, "wb") as stream:
+            stream.write(b"acl_custom_begin_check_message_pre=0\n")
+            stream.write(DEFAULT_LOCALOPTS_KEY.encode("ascii") + b"=1\n")
+            stream.write(b"keep_this_option=1\n")
         with open(self.paths.exim, "wb") as stream:
             stream.write(b"BASELINE\n" + rcpt)
         rcpt_baseline = self.read_file(self.paths.exim)
 
         self.assertEqual(install(self.paths, runner=self.runner, preflight=False,
                                  test_recipient="postmaster@example.com"), "installed")
+        self.assertIn(b"acl_custom_begin_check_message_pre=1\n",
+                      self.read_file(self.paths.exim_localopts))
+        self.assertIn(DEFAULT_LOCALOPTS_KEY.encode("ascii") + b"=1\n",
+                      self.read_file(self.paths.exim_localopts))
         generated = self.read_file(self.paths.exim)
         self.assertIn(RCPT_BEGIN, generated)
         self.assertIn(BEGIN, generated)
@@ -109,6 +138,10 @@ class EximDataAclManagerTests(unittest.TestCase):
                          b"RCPT TO:<postmaster@example.com>")
 
         self.assertEqual(uninstall(self.paths, runner=self.runner, preflight=False), "removed-exactly")
+        self.assertEqual(self.read_file(self.paths.exim_localopts),
+                         b"acl_custom_begin_check_message_pre=0\n"
+                         + DEFAULT_LOCALOPTS_KEY.encode("ascii") + b"=1\n"
+                         + b"keep_this_option=1\n")
         self.assertEqual(self.read_file(self.paths.hook), b"")
         self.assertEqual(self.read_file(self.paths.exim), rcpt_baseline)
         self.assertIn(RCPT_BEGIN, self.read_file(self.rcpt_paths.hook))
@@ -120,6 +153,7 @@ class EximDataAclManagerTests(unittest.TestCase):
             install(self.paths, runner=self.runner, preflight=False,
                     test_recipient="postmaster@example.com")
         self.assertEqual(self.read_file(self.paths.hook), before)
+        self.assertEqual(self.read_file(self.paths.exim_localopts), self.localopts_baseline)
         self.assertEqual(self.read_file(self.paths.exim), self.baseline)
         self.assertFalse(os.path.exists(self.paths.state))
 
@@ -130,6 +164,7 @@ class EximDataAclManagerTests(unittest.TestCase):
             install(self.paths, runner=self.runner, preflight=False,
                     test_recipient="postmaster@example.com")
         self.assertEqual(self.read_file(self.paths.hook), before)
+        self.assertEqual(self.read_file(self.paths.exim_localopts), self.localopts_baseline)
         self.assertEqual(self.read_file(self.paths.exim), self.baseline)
         self.assertFalse(os.path.exists(self.paths.state))
         self.assertEqual(self.runner.commands.count([self.paths.restart_exim]), 0)

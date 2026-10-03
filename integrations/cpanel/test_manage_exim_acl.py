@@ -4,7 +4,15 @@ import sys
 import tempfile
 import unittest
 
-from manage_exim_acl import ManagerError, Paths, install, run_command, uninstall, validate
+from manage_exim_acl import (
+    DEFAULT_LOCALOPTS_KEY,
+    ManagerError,
+    Paths,
+    install,
+    run_command,
+    uninstall,
+    validate,
+)
 
 
 class FakeCpanel(object):
@@ -15,6 +23,7 @@ class FakeCpanel(object):
         self.fail_restart_once = False
         self.commands = []
         self.inputs = []
+        self.dry_option_values = []
 
     def hook_contents(self):
         if not os.path.exists(self.paths.hook):
@@ -22,12 +31,20 @@ class FakeCpanel(object):
         with open(self.paths.hook, "rb") as stream:
             return stream.read()
 
+    def option_value(self):
+        with open(self.paths.exim_localopts, "rb") as stream:
+            for line in stream:
+                if line.startswith(DEFAULT_LOCALOPTS_KEY.encode("ascii") + b"="):
+                    return line.split(b"=", 1)[1].strip().decode("ascii")
+        raise AssertionError("cPanel ACL option missing from fixture")
+
     def __call__(self, command, timeout=120, input_data=None):
         self.commands.append(command)
         self.inputs.append(input_data)
         if command[0] == self.paths.builder and "--acl_dry_run" in command:
             if self.fail_dry:
                 raise ManagerError("dry-run fake failure")
+            self.dry_option_values.append(self.option_value())
             content = self.hook_contents().decode("utf-8")
             return "Dry Run ok\n" + content
         if command[0] == self.paths.builder:
@@ -36,7 +53,7 @@ class FakeCpanel(object):
                 raise ManagerError("full-build fake failure")
             hook = self.hook_contents()
             with open(self.paths.exim, "wb") as stream:
-                stream.write(b"BASELINE\n" + hook)
+                stream.write(b"BASELINE\n" + (hook if self.option_value() == "1" else b""))
             return "Configuration file passes test! New configuration file was installed.\n"
         if command[0] == self.paths.exim_bin:
             if "-bh" in command:
@@ -58,6 +75,9 @@ class EximAclManagerTests(unittest.TestCase):
             os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, "wb") as stream:
                 stream.write(b"")
+        with open(self.paths.exim_localopts, "wb") as stream:
+            stream.write(DEFAULT_LOCALOPTS_KEY.encode("ascii") + b"=0\nkeep_this_option=1\n")
+        self.localopts_baseline = self.read_file(self.paths.exim_localopts)
         with open(self.paths.exim, "wb") as stream:
             stream.write(b"BASELINE\n")
         self.baseline = self.read_file(self.paths.exim)
@@ -89,6 +109,8 @@ class EximAclManagerTests(unittest.TestCase):
         before = self.hook_bytes()
         validate(self.paths, runner=self.runner, preflight=False)
         self.assertEqual(before, self.hook_bytes())
+        self.assertEqual(self.localopts_baseline, self.read_file(self.paths.exim_localopts))
+        self.assertEqual(["1"], self.runner.dry_option_values)
         self.assertEqual(self.baseline, self.read_file(self.paths.exim))
         self.assertEqual(1, len(self.runner.commands))
         self.assertIn("--acl_dry_run", self.runner.commands[0])
@@ -101,10 +123,14 @@ class EximAclManagerTests(unittest.TestCase):
     def test_install_then_uninstall_rebuilds_and_restores_exact_hook(self):
         before = self.hook_bytes()
         self.assertEqual("installed", install(self.paths, runner=self.runner, preflight=False))
+        self.assertIn(DEFAULT_LOCALOPTS_KEY.encode("ascii") + b"=1\n",
+                      self.read_file(self.paths.exim_localopts))
+        self.assertIn(b"keep_this_option=1\n", self.read_file(self.paths.exim_localopts))
         self.assertIn(b"# BEGIN HAD-ANTISPAM-MONITOR", self.hook_bytes())
         self.assertIn(b"# BEGIN HAD-ANTISPAM-MONITOR", self.read_file(self.paths.exim))
         self.assertEqual("removed-exactly", uninstall(self.paths, runner=self.runner, preflight=False))
         self.assertEqual(before, self.hook_bytes())
+        self.assertEqual(self.localopts_baseline, self.read_file(self.paths.exim_localopts))
         self.assertEqual(self.baseline, self.read_file(self.paths.exim))
 
     def test_install_is_idempotent(self):
@@ -114,12 +140,23 @@ class EximAclManagerTests(unittest.TestCase):
         self.assertEqual(current, self.hook_bytes())
         self.assertEqual(1, current.count(b"# BEGIN HAD-ANTISPAM-MONITOR"))
 
+    def test_preserves_previously_enabled_cpanel_custom_acl_option(self):
+        enabled = DEFAULT_LOCALOPTS_KEY.encode("ascii") + b"=1\nkeep_this_option=1\n"
+        with open(self.paths.exim_localopts, "wb") as stream:
+            stream.write(enabled)
+        with open(self.paths.exim, "wb") as stream:
+            stream.write(b"BASELINE\n")
+        self.assertEqual("installed", install(self.paths, runner=self.runner, preflight=False))
+        self.assertEqual("removed-exactly", uninstall(self.paths, runner=self.runner, preflight=False))
+        self.assertEqual(enabled, self.read_file(self.paths.exim_localopts))
+
     def test_dry_run_failure_restores_hook_and_removes_snapshot(self):
         before = self.hook_bytes()
         self.runner.fail_dry = True
         with self.assertRaises(ManagerError):
             install(self.paths, runner=self.runner, preflight=False)
         self.assertEqual(before, self.hook_bytes())
+        self.assertEqual(self.localopts_baseline, self.read_file(self.paths.exim_localopts))
         self.assertFalse(os.path.exists(self.paths.state))
         self.assertEqual(self.baseline, self.read_file(self.paths.exim))
 
@@ -129,6 +166,7 @@ class EximAclManagerTests(unittest.TestCase):
         with self.assertRaises(ManagerError):
             install(self.paths, runner=self.runner, preflight=False)
         self.assertEqual(before, self.hook_bytes())
+        self.assertEqual(self.localopts_baseline, self.read_file(self.paths.exim_localopts))
         self.assertFalse(os.path.exists(self.paths.state))
         self.assertEqual(self.baseline, self.read_file(self.paths.exim))
 
@@ -151,6 +189,7 @@ class EximAclManagerTests(unittest.TestCase):
         with self.assertRaises(ManagerError):
             install(self.paths, runner=failing_smoke, preflight=False, reload_exim=True)
         self.assertEqual(b"", self.hook_bytes())
+        self.assertEqual(self.localopts_baseline, self.read_file(self.paths.exim_localopts))
         self.assertEqual(self.baseline, self.read_file(self.paths.exim))
         self.assertFalse(os.path.exists(self.paths.state))
         self.assertEqual(0, self.runner.commands.count([self.paths.restart_exim]))
@@ -174,7 +213,7 @@ class EximAclManagerTests(unittest.TestCase):
         with open(self.paths.hook, "ab") as stream:
             stream.write(b"# Independent cPanel addition\n")
         result = uninstall(self.paths, runner=self.runner, preflight=False)
-        self.assertIn("differs", result)
+        self.assertEqual("removed-exactly", result)
         self.assertEqual(b"# Independent cPanel addition\n", self.hook_bytes())
 
     def test_changed_managed_block_is_not_overwritten(self):

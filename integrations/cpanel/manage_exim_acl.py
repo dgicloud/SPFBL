@@ -10,6 +10,7 @@ import contextlib
 import hashlib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -24,6 +25,7 @@ DEFAULT_HOOK = "/usr/local/cpanel/etc/exim/acls/ACL_RECIPIENT_BLOCK/custom_begin
 DEFAULT_EXIM = "/etc/exim.conf"
 DEFAULT_STATE = "/var/lib/had-antispam/cpanel-acl/current"
 DEFAULT_LOCK = "/run/lock/had-antispam-exim-acl.lock"
+DEFAULT_LOCALOPTS_KEY = "acl_custom_begin_recipient"
 
 
 class ManagerError(RuntimeError):
@@ -132,6 +134,72 @@ def restore(path, data, metadata):
                 raise
         return
     atomic_write(path, data, metadata)
+
+
+def update_cpanel_option(data, key, value, allowed_current=None):
+    """Update exactly one cPanel localopts boolean while preserving other bytes."""
+    if value not in ("0", "1"):
+        raise ManagerError("Valor inválido para opção cPanel: " + str(value))
+    key_bytes = key.encode("ascii")
+    line_pattern = re.compile(
+        rb"^([ \t]*" + re.escape(key_bytes) + rb"[ \t]*=[ \t]*)([01])([ \t]*(?:#.*)?)$")
+    key_pattern = re.compile(rb"^[ \t]*" + re.escape(key_bytes) + rb"[ \t]*=")
+    lines = data.splitlines(True)
+    matches = []
+    for index, line in enumerate(lines):
+        body = line.rstrip(b"\r\n")
+        if not key_pattern.match(body):
+            continue
+        match = line_pattern.match(body)
+        if not match:
+            raise ManagerError("Opção cPanel tem formato inesperado: " + key)
+        matches.append((index, line, body, match))
+    if len(matches) != 1:
+        raise ManagerError("Esperada exatamente uma opção {0} em exim.conf.localopts; encontradas {1}".format(
+            key, len(matches)))
+    index, line, body, match = matches[0]
+    current = match.group(2).decode("ascii")
+    if allowed_current is not None and current not in allowed_current:
+        raise ManagerError("Opção cPanel {0} mudou para {1}; alteração interrompida".format(
+            key, current))
+    if current == value:
+        return data, current
+    ending = line[len(body):]
+    lines[index] = match.group(1) + value.encode("ascii") + match.group(3) + ending
+    return b"".join(lines), current
+
+
+def read_cpanel_option(path, key):
+    data = read_optional(path)
+    if data is None:
+        raise ManagerError("Arquivo cPanel ausente: " + path)
+    key_bytes = key.encode("ascii")
+    line_pattern = re.compile(
+        rb"^[ \t]*" + re.escape(key_bytes) + rb"[ \t]*=[ \t]*([01])(?:[ \t]*(?:#.*)?)?$")
+    key_pattern = re.compile(rb"^[ \t]*" + re.escape(key_bytes) + rb"[ \t]*=")
+    values = []
+    for line in data.splitlines(True):
+        body = line.rstrip(b"\r\n")
+        if key_pattern.match(body):
+            match = line_pattern.match(body)
+            if not match:
+                raise ManagerError("Opção cPanel tem formato inesperado: " + key)
+            values.append(match.group(1).decode("ascii"))
+    if len(values) != 1:
+        raise ManagerError("Esperada exatamente uma opção {0} em exim.conf.localopts; encontradas {1}".format(
+            key, len(values)))
+    return values[0]
+
+
+def set_cpanel_option(paths, key, value, allowed_current=None):
+    data = read_optional(paths.exim_localopts)
+    if data is None:
+        raise ManagerError("Arquivo cPanel ausente: " + paths.exim_localopts)
+    updated, current = update_cpanel_option(data, key, value, allowed_current)
+    if updated != data:
+        metadata = file_metadata(paths.exim_localopts)
+        atomic_write(paths.exim_localopts, updated, metadata)
+    return current
 
 
 def marker_spans(data):
@@ -306,9 +374,11 @@ def run_synthetic_smoke(paths, runner=run_command):
     return output
 
 
-def snapshot_state(paths, current, metadata, snippet):
+def snapshot_state(paths, current, metadata, snippet, managed_option=None):
     if os.path.exists(paths.state):
         raise ManagerError("Há snapshot de instalação anterior; execute uninstall/status primeiro")
+    managed_option_before = (read_cpanel_option(paths.exim_localopts, managed_option)
+                             if managed_option else None)
     os.makedirs(paths.state, mode=0o700)
     os.chmod(paths.state, 0o700)
     if current is not None:
@@ -326,6 +396,12 @@ def snapshot_state(paths, current, metadata, snippet):
         "exim_localopts_sha256_before": hash_file(paths.exim_localopts),
         "status": "installing",
     }
+    if managed_option:
+        manifest["managed_localopts_option"] = {
+            "key": managed_option,
+            "before": managed_option_before,
+            "active": "1",
+        }
     write_manifest(paths, manifest)
     return manifest
 
@@ -369,14 +445,28 @@ def ensure_snapshot_permissions(paths):
 def verify_exim_source_unchanged(paths, manifest):
     if hash_file(paths.exim_local) != manifest.get("exim_local_sha256_before"):
         raise ManagerError("/etc/exim.conf.local mudou durante a transação; preservado para revisão")
-    if hash_file(paths.exim_localopts) != manifest.get("exim_localopts_sha256_before"):
+    option = manifest.get("managed_localopts_option")
+    current_hash = hash_file(paths.exim_localopts)
+    if option:
+        data = read_optional(paths.exim_localopts)
+        if data is None:
+            raise ManagerError("/etc/exim.conf.localopts desapareceu durante a transação")
+        normalized, _ = update_cpanel_option(
+            data, option["key"], option["before"],
+            allowed_current=(option["before"], option["active"]))
+        current_hash = sha256(normalized)
+    if current_hash != manifest.get("exim_localopts_sha256_before"):
         raise ManagerError("/etc/exim.conf.localopts mudou durante a transação; preservado para revisão")
 
 
 def rollback_install(paths, original, metadata, manifest, runner, reload_exim=False):
+    verify_exim_source_unchanged(paths, manifest)
     restore(paths.hook, original, metadata)
+    option = manifest.get("managed_localopts_option")
+    if option:
+        set_cpanel_option(paths, option["key"], option["before"],
+                          allowed_current=(option["before"], option["active"]))
     if manifest.get("status") == "installing" and hash_file(paths.exim) != manifest.get("exim_sha256_before"):
-        verify_exim_source_unchanged(paths, manifest)
         run_full_build(paths, runner=runner, expect_marker=False)
         if hash_file(paths.exim) != manifest.get("exim_sha256_before"):
             raise ManagerError("Rollback recompôs o Exim, mas o hash gerado difere do snapshot")
@@ -393,11 +483,16 @@ def validate(paths=None, runner=run_command, preflight=True):
         current = read_optional(paths.hook)
         metadata = file_metadata(paths.hook)
         candidate = compose_hook(current, snippet)
-        atomic_write(paths.hook, candidate, metadata)
+        original_option = read_cpanel_option(paths.exim_localopts, DEFAULT_LOCALOPTS_KEY)
         try:
+            set_cpanel_option(paths, DEFAULT_LOCALOPTS_KEY, "1",
+                              allowed_current=(original_option, "1"))
+            atomic_write(paths.hook, candidate, metadata)
             output = run_dry_build(paths, runner=runner)
         finally:
             restore(paths.hook, current, metadata)
+            set_cpanel_option(paths, DEFAULT_LOCALOPTS_KEY,
+                              original_option, allowed_current=(original_option, "1"))
         if read_optional(paths.hook) != current:
             raise ManagerError("Validação não restaurou exatamente o hook original")
         return output
@@ -416,6 +511,8 @@ def install(paths=None, runner=run_command, reload_exim=False, preflight=True):
             installed = compose_hook(current, snippet)
             if installed != current:
                 raise ManagerError("Já existe um bloco HAD divergente no hook")
+            if read_cpanel_option(paths.exim_localopts, DEFAULT_LOCALOPTS_KEY) != "1":
+                raise ManagerError("Bloco HAD existe, mas acl_custom_begin_recipient está desativado; revisão do snapshot necessária")
             run_dry_build(paths, runner=runner)
             if reload_exim:
                 run_full_build(paths, runner=runner, expect_marker=True)
@@ -423,10 +520,14 @@ def install(paths=None, runner=run_command, reload_exim=False, preflight=True):
                 runner([paths.restart_exim])
             return "already-installed"
 
-        manifest = snapshot_state(paths, current, metadata, snippet)
+        manifest = snapshot_state(paths, current, metadata, snippet,
+                                  managed_option=DEFAULT_LOCALOPTS_KEY)
         ensure_snapshot_permissions(paths)
         reload_attempted = False
         try:
+            option = manifest["managed_localopts_option"]
+            set_cpanel_option(paths, option["key"], option["active"],
+                              allowed_current=(option["before"], option["active"]))
             candidate = compose_hook(current, snippet)
             atomic_write(paths.hook, candidate, metadata)
             run_dry_build(paths, runner=runner)
@@ -471,11 +572,16 @@ def uninstall(paths=None, runner=run_command, reload_exim=False, preflight=True)
             raise ManagerError("Bloco gerenciado mudou desde a instalação; snapshot mantido sem sobrescrever")
         original = load_original(paths, manifest)
         candidate = remove_hook_block(current)
+        verify_exim_source_unchanged(paths, manifest)
         try:
             if original is None and not candidate:
                 restore(paths.hook, None, None)
             else:
                 atomic_write(paths.hook, candidate, metadata)
+            option = manifest.get("managed_localopts_option")
+            if option:
+                set_cpanel_option(paths, option["key"], option["before"],
+                                  allowed_current=(option["before"], option["active"]))
             run_dry_build(paths, runner=runner)
             run_full_build(paths, runner=runner, expect_marker=False)
             verify_exim_source_unchanged(paths, manifest)
@@ -499,6 +605,10 @@ def uninstall(paths=None, runner=run_command, reload_exim=False, preflight=True)
         except Exception as exc:
             try:
                 restore(paths.hook, current, metadata)
+                option = manifest.get("managed_localopts_option")
+                if option:
+                    set_cpanel_option(paths, option["key"], option["active"],
+                                      allowed_current=(option["before"], option["active"]))
                 run_full_build(paths, runner=runner, expect_marker=True)
                 if reload_exim:
                     runner([paths.restart_exim])
