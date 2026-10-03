@@ -226,10 +226,32 @@ class HeaderProtocolTests(unittest.TestCase):
     def test_submit_header_is_monitor_and_fail_open_on_connect_error(self):
         with patch("had_antispam_client.socket.create_connection", side_effect=ConnectionRefusedError):
             result = submit_header(sample_header(), TransportConfig(server_ip="127.0.0.1"))
-        self.assertEqual(result.status, "connect_or_io_error")
+        self.assertEqual(result.status, "connect_io_error")
         self.assertEqual(result.ticket_count, 2)
+        self.assertEqual(result.connect_attempts, 2)
         self.assertEqual(format_local_header_result(result).split(b"|")[:3],
-                         [b"CONTINUE", b"header", b"connect_or_io_error"])
+                         [b"CONTINUE", b"header", b"connect_io_error"])
+
+    def test_submit_header_retries_connect_timeout_once(self):
+        with reply_server(b"CLEAR\n") as server:
+            original_connect = socket.create_connection
+            calls = []
+
+            def transient_connect(address, timeout):
+                calls.append(timeout)
+                if len(calls) == 1:
+                    raise socket.timeout()
+                return original_connect(address, timeout)
+
+            with patch("had_antispam_client.socket.create_connection",
+                       side_effect=transient_connect):
+                result = submit_header(
+                    sample_header(),
+                    TransportConfig(server_ip="127.0.0.1", port=server.server_address[1]),
+                )
+        self.assertEqual((result.status, result.connect_attempts), ("CLEAR", 2))
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(server.received.startswith(b"HEADER ticket-one;ticket-two "))
 
 
 class QueryTests(unittest.TestCase):
@@ -348,16 +370,39 @@ class QueryTests(unittest.TestCase):
                 ),
             )
             elapsed = time.monotonic() - started
-        self.assertEqual((result.status, result.action), ("total_timeout", "continue"))
+        self.assertEqual((result.status, result.action), ("read_timeout", "continue"))
+        self.assertEqual(result.connect_attempts, 1)
         self.assertLess(elapsed, 0.25)
 
     def test_connection_refused_fails_open(self) -> None:
         with patch("had_antispam_client.socket.create_connection", side_effect=ConnectionRefusedError):
             result = query(sample_envelope(), TransportConfig(server_ip="127.0.0.1"))
         self.assertEqual(
-            (result.status, result.action, result.decision),
-            ("connect_or_io_error", "continue", None),
+            (result.status, result.action, result.decision, result.connect_attempts),
+            ("connect_io_error", "continue", None, 2),
         )
+
+    def test_retries_transient_connect_timeout_once_without_duplicate_request(self) -> None:
+        with reply_server(b"LAN\n") as server:
+            original_connect = socket.create_connection
+            calls = []
+
+            def transient_connect(address, timeout):
+                calls.append(timeout)
+                if len(calls) == 1:
+                    raise socket.timeout()
+                return original_connect(address, timeout)
+
+            with patch("had_antispam_client.socket.create_connection",
+                       side_effect=transient_connect):
+                result = query(
+                    sample_envelope(),
+                    TransportConfig(server_ip="127.0.0.1", port=server.server_address[1]),
+                )
+        self.assertEqual((result.status, result.decision), ("decision", "LAN"))
+        self.assertEqual(result.connect_attempts, 2)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(server.received.count(b"SPF "), 1)
 
     @unittest.skipIf(os.name == "nt" or not hasattr(socket, "AF_UNIX"), "Unix sockets are unavailable")
     def test_query_uses_unix_socket_for_private_transport(self) -> None:

@@ -1,6 +1,6 @@
 # Adapter de envelope HAD — protótipo MONITOR
 
-Este componente consulta o protocolo TCP original do SPFBL com IP, MAIL FROM, HELO e RCPT TO; quando há ticket válido, também envia metadados da mensagem pelo comando upstream `HEADER` na fase DATA. Continua somente em MONITOR: decisões, erros de transporte/parsing e resultados de `HEADER` não alteram a aceitação do Exim. O estado local mantém apenas tickets validados e metadados transitórios; eventos e logs não incluem cabeçalhos nem tickets. Os hooks RCPT e DATA/HEADER estão instalados no cPanel Grupo Guedes desde 2026-10-02. O adapter foi atualizado para reconhecer o registro `HEADER`; o fake SMTP passou rebuild e reload no Exim 4.100.1. Ainda não há mensagem real observada após instalar DATA, portanto ticket e feedback correlacionados seguem pendentes. Não envia comandos ADMIN, corpo da mensagem nem executa ações de fila.
+Este componente consulta o protocolo TCP original do SPFBL com IP, MAIL FROM, HELO e RCPT TO; quando há ticket válido, também envia metadados da mensagem pelo comando upstream `HEADER` na fase DATA. Continua somente em MONITOR: decisões, erros de transporte/parsing e resultados de `HEADER` não alteram a aceitação do Exim. O estado local mantém apenas tickets validados e metadados transitórios; eventos e logs não incluem cabeçalhos nem tickets. Os hooks RCPT e DATA/HEADER estão instalados no cPanel Grupo Guedes desde 2026-10-02. O adapter foi atualizado para reconhecer o registro `HEADER`; o fake SMTP passou rebuild e reload no Exim 4.100.1. Uma amostra de 50 consultas LAN sintéticas pelo socket ativo resultou em 49 decisões `LAN`: 42 na primeira conexão, 7 após repetição e 1 `connect_timeout` mesmo após duas tentativas. Ainda não há mensagem real observada após instalar DATA, portanto ticket e feedback correlacionados seguem pendentes. Não envia comandos ADMIN, corpo da mensagem nem executa ações de fila.
 
 O cliente usa sintaxe e APIs da biblioteca padrão compatíveis com Python 3.6. Os testes do adapter e do gerenciador passaram no Python 3.6.15/Linux. A validação anterior do cPanel Python 3.6.8 cobriu a versão de 18 testes existente à época. Nesse cPanel, o serviço Unix está instalado como `mailnull:mail`, modo `0660`, e consultou o core real em MONITOR.
 
@@ -31,7 +31,7 @@ Saída do CLI: uma linha JSON em `stdout`; um evento JSON resumido em `stderr`. 
 
 - Endereço do core: `--server` ou `HAD_SPFBL_HOST`; deve ser IP literal para excluir resolução DNS do orçamento.
 - Porta: `--port` ou `HAD_SPFBL_PORT`, padrão 9877.
-- Conexão ao core: no máximo 500 ms; prazo da consulta ao core: 800 ms; o teste Exim usa `readsocket` com teto de 1 s.
+- Conexão ao core: tentativas de até 500 ms, com uma repetição somente antes de enviar o comando; o prazo total continua limitado a 800 ms e o `readsocket` do Exim a 1 s. A telemetria distingue falha de conexão de timeout/erro ao enviar ou ler e registra `connect_attempts`; o fluxo segue fail-open.
 - Toda resposta desconhecida ou falha mantém `action=continue`; o modo não pode ser alterado nesta versão.
 
 ## Socket local para Exim

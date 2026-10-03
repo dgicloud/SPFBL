@@ -24,6 +24,7 @@ MAX_HEADER_FIELD_BYTES = 2048
 MAX_HEADER_TICKETS = 64
 CONNECT_TIMEOUT_SECONDS = 0.5
 TOTAL_TIMEOUT_SECONDS = 0.8
+MAX_CONNECT_ATTEMPTS = 2
 LOCAL_READ_TIMEOUT_SECONDS = 0.25
 MAX_LOCAL_CLIENTS = 64
 MAX_CONCURRENT_QUERIES = 16
@@ -175,12 +176,13 @@ class HeaderMessage:
 
 
 class HeaderResult:
-    __slots__ = ("status", "latency_ms", "ticket_count")
+    __slots__ = ("status", "latency_ms", "ticket_count", "connect_attempts")
 
-    def __init__(self, status, latency_ms=0, ticket_count=0):
+    def __init__(self, status, latency_ms=0, ticket_count=0, connect_attempts=0):
         self.status = status
         self.latency_ms = latency_ms
         self.ticket_count = ticket_count
+        self.connect_attempts = connect_attempts
 
 
 def _header_value(name, value):
@@ -240,7 +242,10 @@ class TransportConfig:
 
 
 class QueryResult:
-    __slots__ = ("mode", "action", "status", "decision", "ticket_present", "latency_ms", "ticket")
+    __slots__ = (
+        "mode", "action", "status", "decision", "ticket_present", "latency_ms",
+        "ticket", "connect_attempts",
+    )
 
     def __init__(
         self,
@@ -251,6 +256,7 @@ class QueryResult:
         ticket_present: bool,
         latency_ms: int,
         ticket: Optional[str] = None,
+        connect_attempts: int = 0,
     ) -> None:
         self.mode = mode
         self.action = action
@@ -260,6 +266,7 @@ class QueryResult:
         self.latency_ms = latency_ms
         # Kept only for the local Exim handoff. Never expose it in JSON/events.
         self.ticket = ticket
+        self.connect_attempts = connect_attempts
 
     def as_dict(self) -> Dict[str, Any]:
         return {
@@ -269,6 +276,7 @@ class QueryResult:
             "decision": self.decision,
             "ticket_present": self.ticket_present,
             "latency_ms": self.latency_ms,
+            "connect_attempts": self.connect_attempts,
         }
 
 
@@ -540,6 +548,7 @@ def _emit_event(result: QueryResult) -> None:
         "decision": result.decision,
         "ticket_present": result.ticket_present,
         "latency_ms": result.latency_ms,
+        "connect_attempts": result.connect_attempts,
     }
     print(json.dumps(event, separators=(",", ":")), file=sys.stderr, flush=True)
 
@@ -552,6 +561,7 @@ def _emit_header_event(result: HeaderResult) -> None:
         "status": result.status,
         "ticket_count": result.ticket_count,
         "latency_ms": result.latency_ms,
+        "connect_attempts": result.connect_attempts,
     }
     print(json.dumps(event, separators=(",", ":")), file=sys.stderr, flush=True)
 
@@ -608,6 +618,7 @@ def _result(
     ticket_present: bool,
     started: float,
     ticket: Optional[str] = None,
+    connect_attempts: int = 0,
 ) -> QueryResult:
     elapsed = max(0.0, time.monotonic() - started)
     return QueryResult(
@@ -618,11 +629,44 @@ def _result(
         ticket_present=ticket_present,
         latency_ms=round(elapsed * 1000),
         ticket=ticket,
+        connect_attempts=connect_attempts,
     )
 
 
 def _elapsed_ms(started: float) -> int:
     return round(max(0.0, time.monotonic() - started) * 1000)
+
+
+def _connect_upstream(config: TransportConfig, deadline: float):
+    """Open a socket with one bounded retry before sending protocol data."""
+    attempts = 0
+    last_status = "connect_io_error"
+    while attempts < MAX_CONNECT_ATTEMPTS:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None, attempts, "total_timeout"
+        attempts += 1
+        connection = None
+        try:
+            timeout = min(config.connect_timeout, remaining)
+            if config.server_socket is not None:
+                connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                connection.settimeout(timeout)
+                connection.connect(config.server_socket)
+            else:
+                connection = socket.create_connection(
+                    (config.server_ip, config.port), timeout=timeout
+                )
+            return connection, attempts, None
+        except socket.timeout:
+            last_status = "connect_timeout"
+        except OSError:
+            last_status = "connect_io_error"
+        if connection is not None:
+            connection.close()
+        if attempts >= MAX_CONNECT_ATTEMPTS or deadline - time.monotonic() <= 0:
+            return None, attempts, last_status
+    return None, attempts, last_status
 
 
 def query(envelope: Envelope, config: TransportConfig) -> QueryResult:
@@ -634,31 +678,29 @@ def query(envelope: Envelope, config: TransportConfig) -> QueryResult:
         return _result(str(exc), None, False, started)
 
     deadline = started + config.total_timeout
+    connection, connect_attempts, connect_error = _connect_upstream(config, deadline)
+    if connect_error:
+        return _result(
+            connect_error, None, False, started, connect_attempts=connect_attempts
+        )
+
+    phase = "send"
     try:
-        # TCP destinations are numeric IPs; a local Unix socket is also supported.
-        if config.server_socket is not None:
-            connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            connection.settimeout(
-                min(config.connect_timeout, max(0.001, deadline - time.monotonic()))
-            )
-            connection.connect(config.server_socket)
-        else:
-            connection = socket.create_connection(
-                (config.server_ip, config.port),
-                timeout=min(config.connect_timeout, max(0.001, deadline - time.monotonic())),
-            )
         with connection:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                return _result("total_timeout", None, False, started)
+                return _result("total_timeout", None, False, started,
+                               connect_attempts=connect_attempts)
             connection.settimeout(remaining)
             connection.sendall(request)
 
             response = bytearray()
+            phase = "read"
             while len(response) <= MAX_RESPONSE_BYTES:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    return _result("total_timeout", None, False, started)
+                    return _result("total_timeout", None, False, started,
+                                   connect_attempts=connect_attempts)
                 connection.settimeout(remaining)
                 chunk = connection.recv(min(512, MAX_RESPONSE_BYTES + 1 - len(response)))
                 if not chunk:
@@ -672,11 +714,19 @@ def query(envelope: Envelope, config: TransportConfig) -> QueryResult:
         if separator and trailing.strip(b" \t\r"):
             return _result("invalid_response_line", None, False, started)
         decision, ticket_present, ticket = parse_response(line.rstrip(b"\r"))
-        return _result("decision", decision, ticket_present, started, ticket)
+        return _result(
+            "decision", decision, ticket_present, started, ticket, connect_attempts
+        )
     except socket.timeout:
-        return _result("total_timeout", None, False, started)
+        return _result(
+            phase + "_timeout", None, False, started,
+            connect_attempts=connect_attempts,
+        )
     except OSError:
-        return _result("connect_or_io_error", None, False, started)
+        return _result(
+            phase + "_io_error", None, False, started,
+            connect_attempts=connect_attempts,
+        )
     except InputError as exc:
         return _result(str(exc), None, False, started)
     except LookupError as exc:
@@ -695,25 +745,28 @@ def submit_header(message: HeaderMessage, config: TransportConfig) -> HeaderResu
         return HeaderResult(str(exc), _elapsed_ms(started), ticket_count)
 
     deadline = started + config.total_timeout
+    connection, connect_attempts, connect_error = _connect_upstream(config, deadline)
+    if connect_error:
+        return HeaderResult(
+            connect_error, _elapsed_ms(started), ticket_count, connect_attempts
+        )
+
+    phase = "send"
     try:
-        timeout = min(config.connect_timeout, max(0.001, deadline - time.monotonic()))
-        if config.server_socket is not None:
-            connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            connection.settimeout(timeout)
-            connection.connect(config.server_socket)
-        else:
-            connection = socket.create_connection((config.server_ip, config.port), timeout=timeout)
         with connection:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                return HeaderResult("total_timeout", _elapsed_ms(started), ticket_count)
+                return HeaderResult("total_timeout", _elapsed_ms(started), ticket_count,
+                                    connect_attempts)
             connection.settimeout(remaining)
             connection.sendall(request)
             response = bytearray()
+            phase = "read"
             while len(response) <= MAX_RESPONSE_BYTES:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    return HeaderResult("total_timeout", _elapsed_ms(started), ticket_count)
+                    return HeaderResult("total_timeout", _elapsed_ms(started), ticket_count,
+                                        connect_attempts)
                 connection.settimeout(remaining)
                 chunk = connection.recv(min(512, MAX_RESPONSE_BYTES + 1 - len(response)))
                 if not chunk:
@@ -725,13 +778,16 @@ def submit_header(message: HeaderMessage, config: TransportConfig) -> HeaderResu
         raw_response = bytes(response)
         line, separator, trailing = raw_response.partition(b"\n")
         if separator and trailing.strip(b" \t\r"):
-            return HeaderResult("invalid_header_response", _elapsed_ms(started), ticket_count)
+            return HeaderResult("invalid_header_response", _elapsed_ms(started), ticket_count,
+                                connect_attempts)
         status = parse_header_response(line.rstrip(b"\r"))
-        return HeaderResult(status, _elapsed_ms(started), ticket_count)
+        return HeaderResult(status, _elapsed_ms(started), ticket_count, connect_attempts)
     except socket.timeout:
-        return HeaderResult("total_timeout", _elapsed_ms(started), ticket_count)
+        return HeaderResult(phase + "_timeout", _elapsed_ms(started), ticket_count,
+                            connect_attempts)
     except OSError:
-        return HeaderResult("connect_or_io_error", _elapsed_ms(started), ticket_count)
+        return HeaderResult(phase + "_io_error", _elapsed_ms(started), ticket_count,
+                            connect_attempts)
     except InputError as exc:
         return HeaderResult(str(exc), _elapsed_ms(started), ticket_count)
     except LookupError as exc:
@@ -762,6 +818,7 @@ def _emit_result(result: QueryResult) -> None:
         "decision": result.decision,
         "ticket_present": result.ticket_present,
         "latency_ms": result.latency_ms,
+        "connect_attempts": result.connect_attempts,
     }
     print(json.dumps(event, separators=(",", ":")), file=sys.stderr)
 
