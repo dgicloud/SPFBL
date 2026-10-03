@@ -36,7 +36,7 @@ class FakeCpanel(object):
             for line in stream:
                 if line.startswith(DEFAULT_LOCALOPTS_KEY.encode("ascii") + b"="):
                     return line.split(b"=", 1)[1].strip().decode("ascii")
-        raise AssertionError("cPanel ACL option missing from fixture")
+        return None
 
     def __call__(self, command, timeout=120, input_data=None):
         self.commands.append(command)
@@ -44,7 +44,7 @@ class FakeCpanel(object):
         if command[0] == self.paths.builder and "--acl_dry_run" in command:
             if self.fail_dry:
                 raise ManagerError("dry-run fake failure")
-            self.dry_option_values.append(self.option_value())
+            self.dry_option_values.append(self.option_value() or "0")
             content = self.hook_contents().decode("utf-8")
             return "Dry Run ok\n" + content
         if command[0] == self.paths.builder:
@@ -149,6 +149,23 @@ class EximAclManagerTests(unittest.TestCase):
         self.assertEqual("installed", install(self.paths, runner=self.runner, preflight=False))
         self.assertEqual("removed-exactly", uninstall(self.paths, runner=self.runner, preflight=False))
         self.assertEqual(enabled, self.read_file(self.paths.exim_localopts))
+
+    def test_missing_option_is_temporarily_enabled_and_validation_restores_exact_bytes(self):
+        original = b"keep_this_option=1"
+        with open(self.paths.exim_localopts, "wb") as stream:
+            stream.write(original)
+        validate(self.paths, runner=self.runner, preflight=False)
+        self.assertEqual(original, self.read_file(self.paths.exim_localopts))
+        self.assertEqual(["1"], self.runner.dry_option_values)
+
+    def test_install_and_uninstall_restore_missing_option_and_unterminated_file(self):
+        original = b"keep_this_option=1"
+        with open(self.paths.exim_localopts, "wb") as stream:
+            stream.write(original)
+        self.assertEqual("installed", install(self.paths, runner=self.runner, preflight=False))
+        self.assertEqual("1", self.runner.option_value())
+        self.assertEqual("removed-exactly", uninstall(self.paths, runner=self.runner, preflight=False))
+        self.assertEqual(original, self.read_file(self.paths.exim_localopts))
 
     def test_dry_run_failure_restores_hook_and_removes_snapshot(self):
         before = self.hook_bytes()

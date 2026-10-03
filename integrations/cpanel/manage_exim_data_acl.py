@@ -172,6 +172,8 @@ def validate(paths=None, runner=run_command, preflight=True):
         current = read_optional(paths.hook)
         metadata = file_metadata(paths.hook)
         original_option = read_cpanel_option(paths.exim_localopts, LOCALOPTS_KEY)
+        localopts_data = read_optional(paths.exim_localopts)
+        original_terminated = localopts_data.endswith((b"\n", b"\r"))
         try:
             set_cpanel_option(paths, LOCALOPTS_KEY, "1",
                               allowed_current=(original_option, "1"))
@@ -180,7 +182,8 @@ def validate(paths=None, runner=run_command, preflight=True):
         finally:
             restore(paths.hook, current, metadata)
             set_cpanel_option(paths, LOCALOPTS_KEY, original_option,
-                              allowed_current=(original_option, "1"))
+                              allowed_current=(original_option, "1"),
+                              restore_trailing_newline=original_terminated)
         if read_optional(paths.hook) != current:
             raise ManagerError("Validação DATA não restaurou o hook original byte a byte")
         return output
@@ -192,7 +195,8 @@ def rollback_install(paths, original, metadata, manifest, runner, reload_exim=Fa
     option = manifest.get("managed_localopts_option")
     if option:
         set_cpanel_option(paths, option["key"], option["before"],
-                          allowed_current=(option["before"], option["active"]))
+                          allowed_current=(option["before"], option["active"]),
+                          restore_trailing_newline=option.get("before_terminated"))
     if manifest.get("status") == "installing" and hash_file(paths.exim) != manifest.get("exim_sha256_before"):
         run_full_build(paths, runner=runner, expect_data=False,
                        expect_rcpt=manifest.get("rcpt_marker_before"))
@@ -290,7 +294,8 @@ def uninstall(paths=None, runner=run_command, reload_exim=False, preflight=True)
             option = manifest.get("managed_localopts_option")
             if option:
                 set_cpanel_option(paths, option["key"], option["before"],
-                                  allowed_current=(option["before"], option["active"]))
+                                  allowed_current=(option["before"], option["active"]),
+                                  restore_trailing_newline=option.get("before_terminated"))
             run_dry_build(paths, runner=runner)
             run_full_build(paths, runner=runner, expect_data=False,
                            expect_rcpt=rcpt_before)

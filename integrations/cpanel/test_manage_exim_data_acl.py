@@ -32,7 +32,7 @@ class FakeDataCpanel(object):
             if self.fail_dry:
                 raise ManagerError("fake DATA dry-run failure")
             self.dry_option_values.append(
-                self.option_value("acl_custom_begin_check_message_pre"))
+                self.option_value("acl_custom_begin_check_message_pre") or "0")
             return "Dry Run ok\n"
         if command[0] == self.paths.builder:
             rcpt = self._read(self.rcpt_paths.hook) or b""
@@ -59,7 +59,7 @@ class FakeDataCpanel(object):
             for line in stream:
                 if line.startswith(key.encode("ascii") + b"="):
                     return line.split(b"=", 1)[1].strip().decode("ascii")
-        raise AssertionError("cPanel ACL option missing from fixture: " + key)
+        return None
 
     @staticmethod
     def _read(path):
@@ -110,6 +110,14 @@ class EximDataAclManagerTests(unittest.TestCase):
         self.assertEqual(self.read_file(self.paths.exim), self.baseline)
         self.assertEqual(self.runner.commands, [[self.paths.builder, "--acl_dry_run"]])
 
+    def test_validate_restores_absent_data_acl_option(self):
+        original = DEFAULT_LOCALOPTS_KEY.encode("ascii") + b"=1\nkeep_this_option=1"
+        with open(self.paths.exim_localopts, "wb") as stream:
+            stream.write(original)
+        validate(self.paths, runner=self.runner, preflight=False)
+        self.assertEqual(self.read_file(self.paths.exim_localopts), original)
+        self.assertEqual(self.runner.dry_option_values, ["1"])
+
     def test_install_then_uninstall_preserves_existing_rcpt_hook(self):
         rcpt = (
             RCPT_BEGIN + b"\n  warn\n    logwrite = existing RCPT monitor\n" + RCPT_END + b"\n"
@@ -145,6 +153,16 @@ class EximDataAclManagerTests(unittest.TestCase):
         self.assertEqual(self.read_file(self.paths.hook), b"")
         self.assertEqual(self.read_file(self.paths.exim), rcpt_baseline)
         self.assertIn(RCPT_BEGIN, self.read_file(self.rcpt_paths.hook))
+
+    def test_missing_data_acl_option_is_added_and_removed_without_changing_localopts(self):
+        original = DEFAULT_LOCALOPTS_KEY.encode("ascii") + b"=1\nkeep_this_option=1"
+        with open(self.paths.exim_localopts, "wb") as stream:
+            stream.write(original)
+        self.assertEqual(install(self.paths, runner=self.runner, preflight=False,
+                                 test_recipient="postmaster@example.com"), "installed")
+        self.assertEqual(self.runner.option_value("acl_custom_begin_check_message_pre"), "1")
+        self.assertEqual(uninstall(self.paths, runner=self.runner, preflight=False), "removed-exactly")
+        self.assertEqual(self.read_file(self.paths.exim_localopts), original)
 
     def test_failed_dry_run_restores_hook_and_does_not_build(self):
         before = self.read_file(self.paths.hook)
