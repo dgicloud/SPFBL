@@ -46,7 +46,14 @@ had-content-scan-clients disable valinor
 
 ## Instalar no cPanel/Exim
 
-O pacote de cPanel leva somente `scan_client.py`, o hook e o instalador. No cPanel, guarde o token num arquivo root-only sem colocá-lo no histórico do shell:
+O pacote de cPanel leva somente `scan_client.py`, o hook e o instalador. Antes de emitir uma credencial, configure `system_filter_pipe_transport = address_pipe` em WHM → Service Configuration → Exim Configuration Manager → Advanced Editor → Add additional configuration setting e salve para reconstruir o Exim. Confirme o transporte e execute o preflight sem token:
+
+```bash
+/usr/sbin/exim -bP system_filter_pipe_transport system_filter_user system_filter_group
+bash install-content-scan.sh --client-id valinor --check
+```
+
+Só depois do preflight passar, crie a credencial individual na VM conforme a seção anterior. No cPanel, guarde o token num arquivo root-only sem colocá-lo no histórico do shell:
 
 ```bash
 read -r -s -p 'Token do gateway: ' HAD_SCAN_TOKEN
@@ -56,14 +63,13 @@ printf '%s' "$HAD_SCAN_TOKEN" > /root/had-content-scan.token
 unset HAD_SCAN_TOKEN
 ```
 
-Faça primeiro o preflight; depois instale:
+Instale como root:
 
 ```bash
-bash install-content-scan.sh --client-id valinor --token-file /root/had-content-scan.token --check
 bash install-content-scan.sh --client-id valinor --token-file /root/had-content-scan.token
 ```
 
-Antes da instalação, configure `system_filter_pipe_transport = address_pipe` em WHM → Service Configuration → Exim Configuration Manager → Advanced Editor → Add additional configuration setting. Use o WHM para salvar e reconstruir o Exim; o instalador não edita manualmente `/etc/exim.conf`. O pacote verifica o transporte e confirma que a conta/grupo do system filter consegue ler o token e obter o lock. A credencial fica em `/etc/had-content-scan/client.json`, root + grupo do filtro, modo `0640`; o cliente e o hook são executados com o usuário do system filter configurado no cPanel. O hook usa a pasta suportada `/usr/local/cpanel/etc/exim/sysfilter/options/`, sem substituir o filtro global.
+O instalador não edita manualmente `/etc/exim.conf`; ele verifica o transporte e confirma que a conta/grupo do system filter consegue ler o token e obter o lock. A credencial fica em `/etc/had-content-scan/client.json`, root + grupo do filtro, modo `0640`; o cliente e o hook são executados com o usuário do system filter configurado no cPanel. O hook usa a pasta suportada `/usr/local/cpanel/etc/exim/sysfilter/options/`, sem substituir o filtro global.
 
 Para verificar:
 

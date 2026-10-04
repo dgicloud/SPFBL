@@ -26,10 +26,11 @@ EXIM_RESTARTED=0
 fail() { printf 'HAD content scan cPanel: %s\n' "$*" >&2; exit 1; }
 usage() {
     cat <<'EOF'
-Uso: install-content-scan.sh --client-id ID --token-file ARQUIVO [--endpoint HTTPS_URL] [--check]
+Uso: install-content-scan.sh --client-id ID [--token-file ARQUIVO] [--endpoint HTTPS_URL] [--check]
 
-O token deve estar em arquivo root-only; nunca o passe como argumento. O cliente
-transmite a cópia unseen da mensagem já aceita, em blocos, sem criar arquivo .eml.
+O preflight --check não precisa de token. Na instalação, o token deve estar em
+arquivo root-only; nunca o passe como argumento. O cliente transmite a cópia
+unseen da mensagem já aceita, em blocos, sem criar arquivo .eml.
 EOF
 }
 
@@ -55,11 +56,6 @@ command -v runuser >/dev/null || fail 'runuser não encontrado; não consigo tes
 [[ -r "$HERE/exim/sysfilter-content-scan.conf" ]] || fail 'snippet de system-filter ausente.'
 [[ "$CLIENT_ID" =~ ^[a-z0-9][a-z0-9._-]{0,63}$ ]] || fail 'client-id inválido; use letras minúsculas, números, ponto, hífen ou sublinhado.'
 [[ "$ENDPOINT" == "https://matrix.hadcloud.srv.br/internal/sfox/scan" ]] || fail 'endpoint deve ser o HTTPS autorizado da HAD.'
-[[ -n "$TOKEN_FILE" && -f "$TOKEN_FILE" ]] || fail '--token-file deve apontar para arquivo regular.'
-TOKEN_MODE=$(stat -c '%a' "$TOKEN_FILE")
-TOKEN_OWNER=$(stat -c '%u' "$TOKEN_FILE")
-(( TOKEN_OWNER == 0 )) || fail 'o arquivo do token precisa pertencer a root.'
-(( (8#$TOKEN_MODE & 077) == 0 )) || fail 'o arquivo do token deve ter modo 0600 ou mais restrito.'
 [[ ! -e "$FILTER_OPTION" ]] || fail "$FILTER_OPTION já existe; preservado."
 [[ ! -e "$CLIENT" && ! -e "$CLIENT_LINK" ]] || fail 'cliente existente foi preservado; remova ou atualize pelo procedimento próprio.'
 [[ ! -e "$CLIENT_CONFIG" ]] || fail "$CLIENT_CONFIG já existe; preservado."
@@ -116,6 +112,12 @@ if (( CHECK_ONLY )); then
     printf 'Pré-verificação concluída; cliente, endpoint HTTPS, system_filter e transporte pipe estão disponíveis.\n'
     exit 0
 fi
+
+[[ -n "$TOKEN_FILE" && -f "$TOKEN_FILE" ]] || fail '--token-file deve apontar para arquivo regular.'
+TOKEN_MODE=$(stat -c '%a' "$TOKEN_FILE")
+TOKEN_OWNER=$(stat -c '%u' "$TOKEN_FILE")
+(( TOKEN_OWNER == 0 )) || fail 'o arquivo do token precisa pertencer a root.'
+(( (8#$TOKEN_MODE & 077) == 0 )) || fail 'o arquivo do token deve ter modo 0600 ou mais restrito.'
 
 rollback() {
     local status=$?

@@ -2,9 +2,21 @@
 
 Este add-on contém somente o coletor Python, um hook Exim e o instalador, além da licença/atribuições do projeto. Ele não leva o core SPFBL/Java, Rspamd, Redis ou bibliotecas externas. O gateway deve estar previamente instalado na VM por `packaging/content-scan/install-gateway.sh`; sem esse gateway o preflight falha sem alterar Exim.
 
-## Preparar token
+## Pré-requisitos e preflight
 
-Na VM central, depois de colocar o IP do cPanel na allowlist SPFBL:
+Antes de emitir um token, configure o transporte pelo WHM (não edite `/etc/exim.conf`): abra **Service Configuration → Exim Configuration Manager → Advanced Editor → Add additional configuration setting**, informe `system_filter_pipe_transport` como chave e `address_pipe` como valor, e salve. O `address_pipe` já é fornecido pelo cPanel como transporte pipe; o Exim exige um transporte explícito para comandos `pipe` no system filter. Depois, confirme:
+
+```bash
+/usr/sbin/exim -bP system_filter_pipe_transport system_filter_user system_filter_group
+```
+
+Extraia o add-on e rode o preflight como root; ele não precisa de token nem altera o Exim:
+
+```bash
+bash install-content-scan.sh --client-id HOST-CPANEL --check
+```
+
+O preflight confirma transporte, usuário/grupo do filtro, TLS e permissão da rota. Só depois de passar, na VM central, cadastre o IP do cPanel na allowlist SPFBL e crie uma credencial individual:
 
 ```bash
 had-content-scan-clients add HOST-CPANEL --cidr IP_PUBLICO/32
@@ -20,22 +32,13 @@ printf '%s' "$HAD_SCAN_TOKEN" > /root/had-content-scan.token
 unset HAD_SCAN_TOKEN
 ```
 
-## Instalar
-
-Extraia o add-on e execute como root:
+Então instale como root:
 
 ```bash
-bash install-content-scan.sh --client-id HOST-CPANEL --token-file /root/had-content-scan.token --check
 bash install-content-scan.sh --client-id HOST-CPANEL --token-file /root/had-content-scan.token
 ```
 
-Antes da instalação, configure o transporte pelo WHM (não edite `/etc/exim.conf`): abra **Service Configuration → Exim Configuration Manager → Advanced Editor → Add additional configuration setting**, informe `system_filter_pipe_transport` como chave e `address_pipe` como valor, e salve. O `address_pipe` já é fornecido pelo cPanel como transporte pipe; o Exim exige um transporte explícito para comandos `pipe` no system filter. Depois, confirme:
-
-```bash
-/usr/sbin/exim -bP system_filter_pipe_transport system_filter_user system_filter_group
-```
-
-O script confirma TLS, endpoint, system filter e transporte pipe existente; reconstrói e testa o filtro Exim antes de reiniciar o serviço. Se `system_filter_pipe_transport` não estiver definido no WHM, a instalação para sem alteração e informa o ajuste exato. O instalador detecta o usuário e grupo configurados para o system filter, guarda o token em `/etc/had-content-scan/client.json` (root e grupo do filtro) e cria o lock para o usuário do filtro. Antes do rebuild, testa leitura do token e acesso ao lock como essa mesma conta.
+O instalador detecta o usuário e grupo configurados para o system filter, guarda o token em `/etc/had-content-scan/client.json` (root e grupo do filtro) e cria o lock para o usuário do filtro. Antes do rebuild, testa leitura do token e acesso ao lock como essa mesma conta.
 
 ## O que acontece
 
