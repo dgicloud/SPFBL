@@ -1,6 +1,6 @@
 # Instalar coleta técnica no cPanel/Exim
 
-Pacote autocontido: `had-antispam-cpanel-1.2.1-had-20261003-signals.tar.gz`.
+Pacote autocontido: `had-antispam-cpanel-ee7b127.tar.gz`.
 O pacote contém scripts, adapter Python 3.6+, hooks, CLI de feedback e licença upstream; não contém credenciais, dados de mensagens, core Java ou chave OpenRouter.
 
 ## Antes de instalar
@@ -15,15 +15,24 @@ Copie o pacote e seu `.sha256` para `/root`, substitua o endereço abaixo por um
 
 ```bash
 cd /root
-sha256sum -c had-antispam-cpanel-1.2.1-had-20261003-signals.tar.gz.sha256
-tar -xzf had-antispam-cpanel-1.2.1-had-20261003-signals.tar.gz
-cd had-antispam-cpanel-1.2.1-had-20261003-signals
+sha256sum -c had-antispam-cpanel-ee7b127.tar.gz.sha256
+tar -xzf had-antispam-cpanel-ee7b127.tar.gz
+cd had-antispam-cpanel-ee7b127
 bash install.sh --test-recipient caixa@seudominio.com.br --check
 bash install.sh --test-recipient caixa@seudominio.com.br
 ```
 
 O teste de instalação usa SMTP simulado local e não entrega mensagem. A instalação testa VERSION antes de trocar arquivos, instala o adapter local e os dois hooks, reconstrói/valida Exim e reinicia Exim. Falhas acionam a reversão dos componentes novos; os gerenciadores preservam seus snapshots se uma reversão também falhar. O novo entrypoint recusa sobrescrever cliente já instalado; não use este fluxo como atualização de instalação existente.
 
+## Atualizar cliente existente
+
+Depois de verificar o SHA-256 e extrair o novo pacote, entre no diretório extraído e execute:
+
+```bash
+bash integrations/cpanel/update-client.sh
+```
+
+Este fluxo atualiza o adapter e reinicia somente o serviço do cliente, preservando o endpoint e os hooks Exim existentes. Para uma instalação nova, use o `install.sh` da raiz conforme acima.
 ## Conferir
 
 ```bash
