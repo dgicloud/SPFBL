@@ -46,6 +46,10 @@ Dados técnicos ficam nos eventos locais do adapter. Nesta versão, somente deci
 
 O recebimento central desses eventos e o gatilho calibrado Jev ainda precisam ser implementados; instalar este pacote não ativa análises contínuas de IA. A autenticação de envio dos sinais para a VM pertence a essa etapa futura. Não confundir o segredo HMAC local de correlação com uma credencial de transporte central.
 
+## Análise de conteúdo Rspamd (opcional, pacote separado)
+
+O coletor técnico acima continua sem corpo SMTP. Para o piloto Rspamd, use o pacote leve separado e instale primeiro o gateway central em `packaging/content-scan/install-gateway.sh`. Esse fluxo entrega ao Exim uma cópia `unseen` depois do aceite SMTP, transmite por HTTPS e recebe `202` quando a mensagem entra na fila volátil em RAM. Rspamd analisa depois; nenhuma decisão afeta SPFBL nem a entrega da mensagem. Veja [README do coletor de conteúdo](../integrations/content_scan/README.md) para segurança, credenciais, limites, teste e estado ainda pendente.
+
 ## Remover a instalação direta
 
 ```bash

@@ -1,0 +1,31 @@
+[Unit]
+Description=HAD SpamFox asynchronous Rspamd scan gateway
+After=network.target rspamd.service
+Wants=rspamd.service
+
+[Service]
+Type=simple
+User=had-content-scan
+Group=had-content-scan
+ExecStart=/usr/bin/python3 /usr/local/lib/had-content-scan/scan_gateway.py --bind 127.0.0.1 --port 11335 --clients /etc/had-antispam/content-scan-clients.json --queue-size 4 --workers 2
+Restart=on-failure
+RestartSec=2s
+Environment=PYTHONUNBUFFERED=1
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryHigh=256M
+MemoryMax=384M
+CPUWeight=40
+TasksMax=24
+
+[Install]
+WantedBy=multi-user.target
