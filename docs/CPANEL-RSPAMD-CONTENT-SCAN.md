@@ -29,7 +29,13 @@ bash install-content-scan.sh --client-id HOST-CPANEL --token-file /root/had-cont
 bash install-content-scan.sh --client-id HOST-CPANEL --token-file /root/had-content-scan.token
 ```
 
-O script confirma TLS, endpoint, system filter e transporte pipe existente; reconstrói e testa o filtro Exim antes de reiniciar o serviço. Se `system_filter_pipe_transport` não estiver definido no WHM, a instalação para sem alteração e informa o pré-requisito.
+Antes da instalação, configure o transporte pelo WHM (não edite `/etc/exim.conf`): abra **Service Configuration → Exim Configuration Manager → Advanced Editor → Add additional configuration setting**, informe `system_filter_pipe_transport` como chave e `address_pipe` como valor, e salve. O `address_pipe` já é fornecido pelo cPanel como transporte pipe; o Exim exige um transporte explícito para comandos `pipe` no system filter. Depois, confirme:
+
+```bash
+/usr/sbin/exim -bP system_filter_pipe_transport system_filter_user system_filter_group
+```
+
+O script confirma TLS, endpoint, system filter e transporte pipe existente; reconstrói e testa o filtro Exim antes de reiniciar o serviço. Se `system_filter_pipe_transport` não estiver definido no WHM, a instalação para sem alteração e informa o ajuste exato. O instalador detecta o usuário e grupo configurados para o system filter, guarda o token em `/etc/had-content-scan/client.json` (root e grupo do filtro) e cria o lock para o usuário do filtro. Antes do rebuild, testa leitura do token e acesso ao lock como essa mesma conta.
 
 ## O que acontece
 

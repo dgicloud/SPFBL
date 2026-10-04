@@ -133,6 +133,13 @@ bind_socket = "127.0.0.1:11334";
 password = "$CONTROLLER_HASH";
 enable_password = "$CONTROLLER_HASH";
 EOF
+write_managed /etc/rspamd/override.d/worker-controller.inc 0644 <<'EOF'
+# HAD-ANTISPAM-RSPAMD-MANAGED
+# Do not trust loopback peers without a controller password.
+secure_ip = [];
+# These inputs allow clients to make Rspamd read arbitrary paths/shared memory.
+allow_file_and_shm_inputs = false;
+EOF
 unset CONTROLLER_SECRET CONTROLLER_HASH
 
 write_managed "$CONFIG_DIR/logging.inc" 0644 <<'EOF'

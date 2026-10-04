@@ -63,7 +63,7 @@ bash install-content-scan.sh --client-id valinor --token-file /root/had-content-
 bash install-content-scan.sh --client-id valinor --token-file /root/had-content-scan.token
 ```
 
-O instalador exige `system_filter` e `system_filter_pipe_transport` ativos, testa o endpoint HTTPS e valida a sintaxe do system filter antes de reiniciar Exim. Se o transporte pipe não existir, ele para sem alterar a configuração; o administrador precisa configurá-lo no Exim Configuration Manager do WHM. O hook usa a pasta suportada pelo cPanel `/usr/local/cpanel/etc/exim/sysfilter/options/`, sem substituir o filtro global.
+Antes da instalação, configure `system_filter_pipe_transport = address_pipe` em WHM → Service Configuration → Exim Configuration Manager → Advanced Editor → Add additional configuration setting. Use o WHM para salvar e reconstruir o Exim; o instalador não edita manualmente `/etc/exim.conf`. O pacote verifica o transporte e confirma que a conta/grupo do system filter consegue ler o token e obter o lock. A credencial fica em `/etc/had-content-scan/client.json`, root + grupo do filtro, modo `0640`; o cliente e o hook são executados com o usuário do system filter configurado no cPanel. O hook usa a pasta suportada `/usr/local/cpanel/etc/exim/sysfilter/options/`, sem substituir o filtro global.
 
 Para verificar:
 
@@ -76,7 +76,7 @@ Os eventos esperados são `upload_queued`, `upload_skipped` ou `request_dropped`
 
 ## Limites do estágio
 
-- O gateway, o cliente e os testes estão implementados; o caminho ainda precisa de instalação e smoke com uma mensagem sintética num cPanel de homologação antes de ativar nos demais servidores.
+- O gateway está instalado na VM e passou por um smoke com mensagem sintética no Rspamd; o hook e o cliente ainda precisam de smoke em um cPanel de homologação antes de ativar nos demais servidores.
 - A verificação não envia assunto, corpo ou anexos ao Jev/OpenRouter; conteúdo vai somente à VM HAD para Rspamd.
 - O resultado ainda é observabilidade MONITOR. Marcação, quarentena, rejeição, UI e fluxo de revisão/treinamento não fazem parte desta integração.
 - Postfix ainda precisa de um filtro after-queue próprio que preserve a entrega original; não execute o cliente como transport final sem reinjetar a mensagem.

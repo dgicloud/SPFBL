@@ -11,12 +11,14 @@ FILTER_NAME=had-antispam-content-scan
 FILTER_OPTION=/usr/local/cpanel/etc/exim/sysfilter/options/had-antispam-content-scan
 CLIENT=/usr/local/libexec/had-antispam/scan_client.py
 CLIENT_LINK=/usr/local/sbin/had-antispam-content-scan
-CLIENT_CONFIG=/etc/had-antispam/content-scan-client.json
+CLIENT_CONFIG_DIR=/etc/had-content-scan
+CLIENT_CONFIG=/etc/had-content-scan/client.json
 LOCK=/run/lock/had-content-scan.lock
 STATE=/var/lib/had-antispam-client/content-scan
 INSTALLED_FILTER=0
 INSTALLED_CLIENT=0
 INSTALLED_CONFIG=0
+INSTALLED_CONFIG_DIR=0
 INSTALLED_LOCK=0
 EXIM_REBUILT=0
 EXIM_RESTARTED=0
@@ -47,8 +49,7 @@ done
 [[ -x /usr/local/cpanel/scripts/restartsrv_exim ]] || fail 'reinício gerenciado do Exim não encontrado.'
 [[ -x /usr/sbin/exim ]] || fail 'binário Exim não encontrado.'
 command -v python3 >/dev/null || fail 'Python 3 não encontrado.'
-getent passwd mailnull >/dev/null || fail 'usuário mailnull não encontrado.'
-getent group mail >/dev/null || fail 'grupo mail não encontrado.'
+command -v runuser >/dev/null || fail 'runuser não encontrado; não consigo testar as permissões do usuário de filtro Exim.'
 [[ -d /usr/local/cpanel/etc/exim/sysfilter/options ]] || fail 'diretório de opções system-filter do cPanel não encontrado.'
 [[ -r "$ROOT/integrations/content_scan/scan_client.py" ]] || fail 'scan_client.py ausente no pacote.'
 [[ -r "$HERE/exim/sysfilter-content-scan.conf" ]] || fail 'snippet de system-filter ausente.'
@@ -66,9 +67,17 @@ TOKEN_OWNER=$(stat -c '%u' "$TOKEN_FILE")
 [[ ! -e "$LOCK" ]] || fail "$LOCK já existe; revise antes de instalar."
 
 SYSTEM_FILTER=$(/usr/sbin/exim -bP system_filter 2>/dev/null | sed -n 's/^[^=]*= *//p' | head -n1)
+FILTER_USER=$(/usr/sbin/exim -bP system_filter_user 2>/dev/null | sed -n 's/^[^=]*= *//p' | head -n1)
+FILTER_GROUP=$(/usr/sbin/exim -bP system_filter_group 2>/dev/null | sed -n 's/^[^=]*= *//p' | head -n1)
 PIPE_TRANSPORT=$(/usr/sbin/exim -bP system_filter_pipe_transport 2>/dev/null | sed -n 's/^[^=]*= *//p' | head -n1)
 [[ -n "$SYSTEM_FILTER" && -r "$SYSTEM_FILTER" ]] || fail 'system_filter do Exim não está configurado ou legível.'
-[[ -n "$PIPE_TRANSPORT" ]] || fail 'system_filter_pipe_transport não está configurado; configure um transporte pipe no WHM antes de instalar.'
+[[ -n "$FILTER_USER" ]] || FILTER_USER=mailnull
+getent passwd "$FILTER_USER" >/dev/null || fail "usuário do system filter não encontrado: $FILTER_USER."
+[[ -n "$FILTER_GROUP" ]] || FILTER_GROUP=$(id -gn "$FILTER_USER") || fail 'não consegui determinar o grupo do system filter.'
+getent group "$FILTER_GROUP" >/dev/null || fail "grupo do system filter não encontrado: $FILTER_GROUP."
+FILTER_GID=$(getent group "$FILTER_GROUP" | cut -d: -f3)
+[[ -n "$PIPE_TRANSPORT" ]] || fail 'system_filter_pipe_transport não está configurado. No WHM, abra Service Configuration > Exim Configuration Manager > Advanced Editor > Add additional configuration setting, defina system_filter_pipe_transport = address_pipe, salve para reconstruir o Exim e execute o instalador novamente.'
+[[ "$PIPE_TRANSPORT" == "address_pipe" ]] || fail "system_filter_pipe_transport está definido como '$PIPE_TRANSPORT'; este instalador exige o transporte pipe padrão do cPanel: address_pipe."
 
 python3 - "$ENDPOINT" "$CLIENT_ID" <<'PY'
 import sys
@@ -115,6 +124,7 @@ rollback() {
         if (( INSTALLED_CLIENT )); then rm -f "$CLIENT" "$CLIENT_LINK"; fi
         if (( INSTALLED_CONFIG )); then rm -f "$CLIENT_CONFIG"; fi
         if (( INSTALLED_LOCK )); then rm -f "$LOCK"; fi
+        if (( INSTALLED_CONFIG_DIR )); then rmdir "$CLIENT_CONFIG_DIR" 2>/dev/null || true; fi
         if (( EXIM_REBUILT )); then /usr/local/cpanel/scripts/buildeximconf >/dev/null 2>&1 || true; fi
         if (( EXIM_REBUILT || EXIM_RESTARTED )); then /usr/local/cpanel/scripts/restartsrv_exim >/dev/null 2>&1 || true; fi
         rm -rf "$STATE"
@@ -126,7 +136,13 @@ trap rollback EXIT
 
 install -d -o root -g root -m 0755 /usr/local/libexec/had-antispam
 install -d -o root -g root -m 0755 /usr/local/sbin
-install -d -o root -g mail -m 0750 /etc/had-antispam
+if [[ -e "$CLIENT_CONFIG_DIR" ]]; then
+    [[ -d "$CLIENT_CONFIG_DIR" && ! -L "$CLIENT_CONFIG_DIR" ]] || fail "$CLIENT_CONFIG_DIR existe e não é um diretório seguro; preservado."
+    [[ $(stat -c '%u:%g:%a' "$CLIENT_CONFIG_DIR") == "0:$FILTER_GID:750" ]] || fail "$CLIENT_CONFIG_DIR precisa ser root:$FILTER_GROUP com modo 0750; foi preservado."
+else
+    install -d -o root -g "$FILTER_GROUP" -m 0750 "$CLIENT_CONFIG_DIR"
+    INSTALLED_CONFIG_DIR=1
+fi
 install -d -o root -g root -m 0700 "$STATE"
 INSTALLED_CLIENT=1
 install -o root -g root -m 0755 "$ROOT/integrations/content_scan/scan_client.py" "$CLIENT"
@@ -158,17 +174,33 @@ finally:
     if os.path.exists(temporary):
         os.unlink(temporary)
 PY
-chown root:mail "$CLIENT_CONFIG"
+chown root:"$FILTER_GROUP" "$CLIENT_CONFIG"
 chmod 0640 "$CLIENT_CONFIG"
 INSTALLED_LOCK=1
-install -o mailnull -g mail -m 0660 /dev/null "$LOCK"
+install -o "$FILTER_USER" -g "$FILTER_GROUP" -m 0600 /dev/null "$LOCK"
+runuser -u "$FILTER_USER" -g "$FILTER_GROUP" -- python3 - "$CLIENT_CONFIG" "$LOCK" <<'PY'
+import fcntl
+import json
+import os
+import sys
+config_path, lock_path = sys.argv[1:]
+with open(config_path, "r") as stream:
+    config = json.load(stream)
+if not isinstance(config.get("token"), str) or len(config["token"]) < 40:
+    raise SystemExit("filter user cannot read a valid client credential")
+with open(lock_path, "a+") as lock:
+    fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+PY
 INSTALLED_FILTER=1
 install -o root -g root -m 0644 "$HERE/exim/sysfilter-content-scan.conf" "$FILTER_OPTION"
 
 EXIM_REBUILT=1
 /usr/local/cpanel/scripts/buildeximconf
 ACTIVE_SYSTEM_FILTER=$(/usr/sbin/exim -bP system_filter 2>/dev/null | sed -n 's/^[^=]*= *//p' | head -n1)
+ACTIVE_PIPE_TRANSPORT=$(/usr/sbin/exim -bP system_filter_pipe_transport 2>/dev/null | sed -n 's/^[^=]*= *//p' | head -n1)
 [[ -r "$ACTIVE_SYSTEM_FILTER" ]] || fail 'system_filter ficou ilegível após rebuild.'
+[[ "$ACTIVE_PIPE_TRANSPORT" == "address_pipe" ]] || fail 'o rebuild cPanel não manteve system_filter_pipe_transport = address_pipe.'
 printf 'From: sender@example.invalid\r\nSubject: synthetic\r\n\r\nbody\r\n' | \
     /usr/sbin/exim -bF "$ACTIVE_SYSTEM_FILTER" >/dev/null 2>&1 || fail 'validação -bF do system-filter falhou.'
 EXIM_RESTARTED=1
