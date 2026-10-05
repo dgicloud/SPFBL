@@ -24,13 +24,13 @@
 # Version: 1.4
 
 # HADCloud adaptation: route all SPFBL checks to the HADCloud SPFBL server.
-# The upstream client/ACL behavior remains intact; only the query endpoint changes.
-HAD_SPFBL_SERVER_IP="151.242.41.35"
+# HADCloud adaptation: route the client to HADCloud and brand its operator-visible banner; preserve SPFBL protocol and license.
+HAD_SPFBL_SERVER="matrix.hadcloud.srv.br"
 HAD_ACL_RAW_BASE="https://raw.githubusercontent.com/dgicloud/SPFBL/hadcloud-cpanel-installer/client"
 
 function configure_query_server_client() {
     local client_script="$1"
-    local setting_count
+    local setting_count banner_count
 
     if [ ! -f "$client_script" ]; then
         echo "SPFBL client script was not downloaded: $client_script"
@@ -43,10 +43,18 @@ function configure_query_server_client() {
         return 1
     fi
 
+    banner_count=$(grep -Fc 'echo "SPFBL v$version - by Leandro Rodrigues - leandro@spfbl.net"' "$client_script" || true)
+    if [ "$banner_count" -ne 1 ]; then
+        echo "Expected one upstream SPFBL CLI banner in $client_script; refusing an unverified patch."
+        return 1
+    fi
+
     local setting
-    printf -v setting 'IP_SERVIDOR="%s"' "$HAD_SPFBL_SERVER_IP"
+    printf -v setting 'IP_SERVIDOR="%s"' "$HAD_SPFBL_SERVER"
     sed -i -E "s|^IP_SERVIDOR=.*$|$setting|" "$client_script"
-    grep -Fqx "$setting" "$client_script"
+    sed -i 's|echo "SPFBL v\$version - by Leandro Rodrigues - leandro@spfbl.net"|echo "SpamFox (SFOX) v\$version - Powered by SPFBL.net"|' "$client_script"
+    grep -Fqx "$setting" "$client_script" &&
+        grep -Fq 'echo "SpamFox (SFOX) v$version - Powered by SPFBL.net"' "$client_script"
 }
 
 function configure_query_server_firewall() {
@@ -65,8 +73,8 @@ function configure_query_server_firewall() {
         return 1
     fi
 
-    sed -i "s/$upstream_ip/$HAD_SPFBL_SERVER_IP/g" "$firewall_script"
-    grep -Fq "$HAD_SPFBL_SERVER_IP" "$firewall_script"
+    sed -i "s/$upstream_ip/$HAD_SPFBL_SERVER/g" "$firewall_script"
+    grep -Fq "$HAD_SPFBL_SERVER" "$firewall_script"
 }
 function exim_configuration() {
     # Change parameters in Exim Configuration Manager interface.
@@ -214,9 +222,9 @@ function install() {
                 sed '/@CONFIG@/a timeout_frozen_after = 7d' /etc/exim.conf.local > spfbltemp && mv -f spfbltemp /etc/exim.conf.local
             fi
             if grep -q "spamd_address" /etc/exim.conf.local; then
-                sed -i 's/spamd_address = .*/spamd_address = 151.242.41.35 9877 retry=30s tmo=3m/' /etc/exim.conf.local
+                sed -i "s|spamd_address = .*|spamd_address = $HAD_SPFBL_SERVER 9877 retry=30s tmo=3m|" /etc/exim.conf.local
             else
-                sed '/@CONFIG@/a spamd_address = 151.242.41.35 9877 retry=30s tmo=3m' /etc/exim.conf.local > spfbltemp && mv -f spfbltemp /etc/exim.conf.local
+                sed "/@CONFIG@/a spamd_address = $HAD_SPFBL_SERVER 9877 retry=30s tmo=3m" /etc/exim.conf.local > spfbltemp && mv -f spfbltemp /etc/exim.conf.local
             fi
             if grep -q "smtp_accept_max" /etc/exim.conf.local; then
                 sed -i 's/smtp_accept_max = .*/smtp_accept_max = 250/' /etc/exim.conf.local
@@ -225,7 +233,7 @@ function install() {
             fi
         else
 	    echo "timeout_frozen_after = 7d" > /etc/exim.conf.local
-            echo "spamd_address = 151.242.41.35 9877 retry=30s tmo=3m" >> /etc/exim.conf.local
+            echo "spamd_address = $HAD_SPFBL_SERVER 9877 retry=30s tmo=3m" >> /etc/exim.conf.local
             echo "smtp_accept_max = 250" >> /etc/exim.conf.local
 	fi
 
@@ -246,11 +254,8 @@ function install() {
     else
         myIP=$(curl -s http://checkip.amazonaws.com/)
         myHOST=$(hostname)
-        echo "Your cPanel doesn't have permission to access matrix.spfbl.net server yet."
-        echo "Please contact us to get your permission for the host $myHOST [$myIP]."
-        echo "https://spfbl.net/en/contact"
-        echo "If this host has already it, open the port 9877 TCP OUT in your firewall"
-        echo "and add the IP 151.242.41.35 in its whitelist."
+        echo "Unable to query the SpamFox core at $HAD_SPFBL_SERVER:9877 from $myHOST [$myIP]."
+        echo "Allow outbound TCP 9877 and add this cPanel public IP to the core allowlist."
         exit 1;
     fi
 }
@@ -259,7 +264,10 @@ function update() {
     if [ -f "/usr/local/cpanel/etc/exim/acls/ACL_RECIPIENT_BLOCK/spfbl_end_recipient" ]; then
         # Replace SPFBL client script.
         wget https://raw.githubusercontent.com/leonamp/SPFBL/master/client/spfbl.sh -O /usr/local/bin/spfbl
-    configure_query_server_client /usr/local/bin/spfbl || exit 1
+        configure_query_server_client /usr/local/bin/spfbl || exit 1
+        if [ -f /etc/exim.conf.local ] && grep -q "spamd_address" /etc/exim.conf.local; then
+            sed -i "s|spamd_address = .*|spamd_address = $HAD_SPFBL_SERVER 9877 retry=30s tmo=3m|" /etc/exim.conf.local
+        fi
 
         # Replace SPFBL configuration files
         wget "$HAD_ACL_RAW_BASE/spfbl_end_recipient" -O /usr/local/cpanel/etc/exim/acls/ACL_RECIPIENT_BLOCK/spfbl_end_recipient

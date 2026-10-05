@@ -2,7 +2,7 @@
 
 Instalador baseado no script oficial client/spfbl.cpanel.sh do projeto [SPFBL](https://github.com/leonamp/SPFBL), versão 1.4 no commit de referência 7b0232e96f16faca151340b80c418838a800237f.
 
-A adaptação preserva a instalação Exim/ClamAV do script oficial e direciona as consultas para o servidor SPFBL da HADCloud (151.242.41.35:9877). O endpoint é aplicado ao cliente SPFBL baixado tanto na instalação quanto em update, ao spamd_address do Exim e ao atualizador de firewall gerado pelo SPFBL. As ACLs HAD de destinatário e análise de mensagem vêm do branch do fork e apresentam respostas de cliente como SpamFox (SFOX); a lógica, os comandos, o protocolo, o core SPFBL e as atribuições permanecem preservados.
+A adaptação preserva a instalação Exim/ClamAV do script oficial e direciona as consultas para o servidor SPFBL da HADCloud (matrix.hadcloud.srv.br:9877). O endpoint é aplicado ao cliente SPFBL baixado tanto na instalação quanto em update, ao spamd_address do Exim e ao atualizador de firewall gerado pelo SPFBL. As ACLs HAD de destinatário e análise de mensagem vêm do branch do fork e apresentam respostas de cliente como SpamFox (SFOX); a lógica, os comandos, o protocolo, o core SPFBL e as atribuições permanecem preservados.
 
 O script mantém a licença e os avisos de copyright do upstream. O instalador ainda baixa o cliente SPFBL e arquivos do clamav-unofficial-sigs durante a execução; as duas ACLs personalizadas de resultados são obtidas do fork HAD.
 
