@@ -3,7 +3,7 @@
 # An SPFBL Cheker installer for cPanel.
 #
 # Usage as root:
-#    ./spfbl.cpanel.sh [install|update|uninstall|firewall]
+#    ./spamfox.cpanel.sh [install|update|uninstall|firewall]
 #
 # SPFBL is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -237,9 +237,9 @@ function install() {
 	echo -e '#!/bin/bash\n/usr/local/bin/spfbl holding' > /etc/cron.hourly/spfbl-holding-check
         chmod +x /etc/cron.hourly/spfbl-holding-check
 
-        echo "SPFBL Checker was successfully installed!"
+        echo "SpamFox (SFOX) client was successfully installed!"
         echo ""
-        echo "Installing SPFBL Firewall solution..."
+        echo "Installing SpamFox (SFOX) firewall solution..."
 
 	# Install firewall solution
 	firewall
@@ -293,7 +293,7 @@ function update() {
         rm -f /etc/cron.hourly/spfbl-firewall-update
 	firewall
     else
-        echo "The SPFBL Checker was not installed yet."
+        echo "The SpamFox (SFOX) client was not installed yet."
         exit 1;
     fi
 }
@@ -353,24 +353,24 @@ function firewall() {
     chmod +x /usr/local/bin/spfbl-firewall-update
     /usr/local/bin/spfbl-firewall-update
 
-    echo "SPFBL Firewall was successfully installed!"
+    echo "SpamFox (SFOX) firewall was successfully installed!"
 }
 
 case "$1" in
     install)
-        echo "[install] Installing SPFBL Checker powered by SPFBL.net"
+        echo "[install] Installing SpamFox (SFOX) client powered by SPFBL.net"
         install
     ;;
     update)
-        echo "[update] Updating SPFBL Checker powered by SPFBL.net"
+        echo "[update] Updating SpamFox (SFOX) client powered by SPFBL.net"
         update
     ;;
     uninstall)
-        echo "[uninstall] Uninstalling SPFBL Checker powered by SPFBL.net"
+        echo "[uninstall] Uninstalling SpamFox (SFOX) client powered by SPFBL.net"
         uninstall
     ;;
     firewall)
-        echo "[firewall] Installing SPFBL Firewall powered by SPFBL.net"
+        echo "[firewall] Installing SpamFox (SFOX) firewall powered by SPFBL.net"
         firewall
     ;;
     *)

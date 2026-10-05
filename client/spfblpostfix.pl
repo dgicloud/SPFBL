@@ -70,7 +70,7 @@ while ( my $line = <STDIN> ) {
 
     # connecting
     my $socket = IO::Socket::INET->new( %{ $CONFIG->{socket} } )
-       or die "action=WARN no SPFBL connection\n\n";
+       or die "action=WARN no SpamFox (SFOX) connection\n\n";
 
     # build and send query
     my $query = "SPF '$params->{client_address}' '$params->{sender}' '$params->{helo_name}' '$params->{recipient}'\n";
@@ -88,11 +88,11 @@ while ( my $line = <STDIN> ) {
     # parse the result
     if ( $result =~ /^LISTED / ) {
         STDOUT->print(
-            "action=451 4.7.2 SPFBL $result\n\n"
+            "action=451 4.7.2 SpamFox (SFOX) $result\n\n"
         );
     } elsif ( $result =~ /^LISTED/ ) {
         STDOUT->print(
-            "action=451 4.7.2 SPFBL you are temporarily blocked on this server. See http://spfbl.net/en/feedback\n\n"
+            "action=451 4.7.2 SpamFox (SFOX) you are temporarily blocked on this server. See http://spfbl.net/en/feedback\n\n"
         );
     } elsif ( $result =~ /^FLAG / ) {
         STDOUT->print(
@@ -108,29 +108,29 @@ while ( my $line = <STDIN> ) {
         );
     } elsif ( $result =~ /^NXDOMAIN/ ) {
         STDOUT->print(
-            "action=554 5.7.1 SPFBL sender has non-existent internet domain. See http://spfbl.net/en/feedback\n\n"
+            "action=554 5.7.1 SpamFox (SFOX) sender has non-existent internet domain. See http://spfbl.net/en/feedback\n\n"
         );
     } elsif ( $result =~ /^BLOCKED / ) {
         STDOUT->print(
-            "action=554 5.7.1 SPFBL $result\n\n"
+            "action=554 5.7.1 SpamFox (SFOX) $result\n\n"
         );
     }
     elsif ( $result =~ /^BLOCKED/ ) {
         STDOUT->print(
-            "action=554 5.7.1 SPFBL you are permanently blocked in this server. See http://spfbl.net/en/feedback\n\n"
+            "action=554 5.7.1 SpamFox (SFOX) you are permanently blocked in this server. See http://spfbl.net/en/feedback\n\n"
         );
     }
     elsif ( $result =~ /^BANNED/ ) {
         STDOUT->print(
-            "action=554 5.7.1 SPFBL you was banned in this server. See http://spfbl.net/en/feedback\n\n"
+            "action=554 5.7.1 SpamFox (SFOX) you was banned in this server. See http://spfbl.net/en/feedback\n\n"
         );
     } elsif ( $result =~ /^INVALID/ ) {
         STDOUT->print(
-            "action=554 5.7.1 SPFBL hostname and sender are both invalids. See http://spfbl.net/en/feedback\n\n"
+            "action=554 5.7.1 SpamFox (SFOX) hostname and sender are both invalids. See http://spfbl.net/en/feedback\n\n"
         );
     } elsif ( $result =~ /^INVALID / ) {
         STDOUT->print(
-            "action=WARN SPFBL $result\n\n"
+            "action=WARN SpamFox (SFOX) $result\n\n"
         );
     } elsif ( $result =~ /^LAN/ ) {
         STDOUT->print(
@@ -138,16 +138,16 @@ while ( my $line = <STDIN> ) {
         );
     } elsif ( $result =~ /^GREYLIST/ ) {
         STDOUT->print(
-            "action=451 4.7.1 SPFBL you are greylisted on this server. See http://spfbl.net/en/feedback\n\n"
+            "action=451 4.7.1 SpamFox (SFOX) you are greylisted on this server. See http://spfbl.net/en/feedback\n\n"
         );
     }
     elsif ( $result =~ /^SPAMTRAP/ ) {
         STDOUT->print(
-            "action=DISCARD SPFBL discarded by spamtrap.\n\n"
+            "action=DISCARD SpamFox (SFOX) discarded by spamtrap.\n\n"
         );
     } elsif ( $result =~ /^ERROR: INVALID SENDER/ ) {
         STDOUT->print(
-            "action=554 5.7.1 SPFBL $params->{sender} is not a valid e-mail address. See http://spfbl.net/en/feedback\n\n"
+            "action=554 5.7.1 SpamFox (SFOX) $params->{sender} is not a valid e-mail address. See http://spfbl.net/en/feedback\n\n"
         );
     } elsif ( $result =~ /^TIMEOUT/ ) {
         STDOUT->print(
@@ -155,11 +155,11 @@ while ( my $line = <STDIN> ) {
         );
     } elsif ( $result =~ /^ERROR: QUERY/ ) {
         STDOUT->print(
-            "action=WARN SPFBL INVALID QUERY\n\n"
+            "action=WARN SpamFox (SFOX) INVALID QUERY\n\n"
         );
     } elsif ( $result =~ /^ERROR: / ) {
         STDOUT->print(
-             "action=WARN SPFBL $result\n\n"
+             "action=WARN SpamFox (SFOX) $result\n\n"
         );
     } elsif ( $result =~ /^NONE / ) {
         STDOUT->print(
@@ -180,7 +180,7 @@ while ( my $line = <STDIN> ) {
         );
     } elsif ( $result =~ /^FAIL/ ) {
         STDOUT->print(
-             "action=554 5.7.1 SPFBL message rejected due to receiver policy for SPF fail. Please see http://www.open-spf.org/Why?s=mfrom;id=$params->{sender};ip=$params->{client_address}\n\n"
+             "action=554 5.7.1 SpamFox (SFOX) message rejected due to receiver policy for SPF fail. Please see http://www.open-spf.org/Why?s=mfrom;id=$params->{sender};ip=$params->{client_address}\n\n"
         );
     } elsif ( $result =~ /^SOFTFAIL / ) {
         STDOUT->print(
@@ -192,17 +192,17 @@ while ( my $line = <STDIN> ) {
         );
     } elsif ( $result =~ /^INEXISTENT/ ) {
         STDOUT->print(
-             "action=550 5.1.1 SPFBL unknown user in virtual mailbox table. See http://spfbl.net/en/feedback\n\n"
+             "action=550 5.1.1 SpamFox (SFOX) unknown user in virtual mailbox table. See http://spfbl.net/en/feedback\n\n"
         );
     } elsif ( $result =~ /^INEXISTENT / ) {
         STDOUT->print(
-             "action=550 5.1.1 SPFBL unknown user in virtual mailbox table. See http://spfbl.net/en/feedback\n\n"
+             "action=550 5.1.1 SpamFox (SFOX) unknown user in virtual mailbox table. See http://spfbl.net/en/feedback\n\n"
         );
     } elsif ( $result =~ /^RELEASE (.+)/ ) {
         my $code = system("postsuper -H $1");
         if ($code == 0) {
             STDOUT->print(
-                "action=DISCARD SPFBL message $1 released.\n\n"
+                "action=DISCARD SpamFox (SFOX) message $1 released.\n\n"
             );
         } else {
             STDOUT->print(
@@ -213,7 +213,7 @@ while ( my $line = <STDIN> ) {
         my $code = system("postsuper -d $1");
         if ($code == 0) {
             STDOUT->print(
-                "action=DISCARD SPFBL message $1 removed.\n\n"
+                "action=DISCARD SpamFox (SFOX) message $1 removed.\n\n"
             );
         } else {
             STDOUT->print(
@@ -222,7 +222,7 @@ while ( my $line = <STDIN> ) {
         }
     } else {
         STDOUT->print(
-            "action=WARN SPFBL UNKNOWN ERROR\n\n"
+            "action=WARN SpamFox (SFOX) UNKNOWN ERROR\n\n"
         );
     }
 }

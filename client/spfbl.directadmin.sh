@@ -23,6 +23,9 @@
 #
 # Version: 1.0
 
+# SpamFox branding is limited to client-facing ACL/log text and installer output; SPFBL protocol stays upstream.
+HAD_ACL_RAW_BASE="https://raw.githubusercontent.com/dgicloud/SPFBL/hadcloud-cpanel-installer/client"
+
 function install() {
 
     # Check if DirectAdmin is installed.
@@ -139,9 +142,9 @@ function install() {
         
         # Install SPFBL configuration files.
         mkdir -p /etc/exim.easy_spam_fighter/
-        wget https://raw.githubusercontent.com/leonamp/SPFBL/master/client/directadmin.acl_check_recipient.pre.conf -O /etc/exim.acl_check_recipient.pre.conf
+        wget "$HAD_ACL_RAW_BASE/directadmin.acl_check_recipient.pre.conf" -O /etc/exim.acl_check_recipient.pre.conf
         wget https://raw.githubusercontent.com/leonamp/SPFBL/master/client/directadmin.acl_check_dkim.conf -O /etc/exim.easy_spam_fighter/check_dkim.conf
-        wget https://raw.githubusercontent.com/leonamp/SPFBL/master/client/directadmin.acl_check_message.pre.conf -O /etc/exim.acl_check_message.pre.conf
+        wget "$HAD_ACL_RAW_BASE/directadmin.acl_check_message.pre.conf" -O /etc/exim.acl_check_message.pre.conf
         echo "av_scanner = clamd:/run/clamd.scan/clamd.sock" > /etc/exim.variables.conf.custom
 	echo "spamd_address = 54.233.253.229 9877" >> /etc/exim.variables.conf.custom
 	echo "RBL_DNS_LIST==" > /etc/exim.strings.conf.custom
@@ -153,9 +156,9 @@ function install() {
 	echo -e '#!/bin/bash\n/usr/local/bin/spfbl holding' > /etc/cron.hourly/spfbl-holding-check
         chmod +x /etc/cron.hourly/spfbl-holding-check
         
-        echo "SPFBL Checker was successfully installed!"
+        echo "SpamFox (SFOX) client was successfully installed!"
         echo ""
-        echo "Installing SPFBL Firewall solution..."
+        echo "Installing SpamFox (SFOX) firewall solution..."
         
         # Install firewall solution
 	firewall
@@ -178,9 +181,9 @@ function update() {
         
         # Replace SPFBL configuration files
         mkdir -p /etc/exim.easy_spam_fighter/
-        wget https://raw.githubusercontent.com/leonamp/SPFBL/master/client/directadmin.acl_check_recipient.pre.conf -O /etc/exim.acl_check_recipient.pre.conf
+        wget "$HAD_ACL_RAW_BASE/directadmin.acl_check_recipient.pre.conf" -O /etc/exim.acl_check_recipient.pre.conf
         wget https://raw.githubusercontent.com/leonamp/SPFBL/master/client/directadmin.acl_check_dkim.conf -O /etc/exim.easy_spam_fighter/check_dkim.conf
-        wget https://raw.githubusercontent.com/leonamp/SPFBL/master/client/directadmin.acl_check_message.pre.conf -O /etc/exim.acl_check_message.pre.conf
+        wget "$HAD_ACL_RAW_BASE/directadmin.acl_check_message.pre.conf" -O /etc/exim.acl_check_message.pre.conf
         echo "av_scanner = clamd:/run/clamd.scan/clamd.sock" > /etc/exim.variables.conf.custom
 	echo "spamd_address = 54.233.253.229 9877" >> /etc/exim.variables.conf.custom
 	echo "RBL_DNS_LIST==" > /etc/exim.strings.conf.custom
@@ -197,7 +200,7 @@ function update() {
 	firewall
 	
     else
-        echo "The SPFBL Checker was not installed yet."
+        echo "The SpamFox (SFOX) client was not installed yet."
         exit 1;
     fi
 }
@@ -256,24 +259,24 @@ function firewall() {
     chmod +x /usr/local/bin/spfbl-firewall-update
     /usr/local/bin/spfbl-firewall-update
     
-    echo "SPFBL Firewall was successfully installed!"
+    echo "SpamFox (SFOX) firewall was successfully installed!"
 }
 
 case "$1" in
     install)
-        echo "[install] Installing SPFBL Checker powered by SPFBL.net"
+        echo "[install] Installing SpamFox (SFOX) client powered by SPFBL.net"
         install
     ;;
     update)
-        echo "[update] Updating SPFBL Checker powered by SPFBL.net"
+        echo "[update] Updating SpamFox (SFOX) client powered by SPFBL.net"
         update
     ;;
     uninstall)
-        echo "[uninstall] Uninstalling SPFBL Checker powered by SPFBL.net"
+        echo "[uninstall] Uninstalling SpamFox (SFOX) client powered by SPFBL.net"
         uninstall
     ;;
     firewall)
-        echo "[firewall] Installing SPFBL Firewall powered by SPFBL.net"
+        echo "[firewall] Installing SpamFox (SFOX) firewall powered by SPFBL.net"
         firewall
     ;;
     *)

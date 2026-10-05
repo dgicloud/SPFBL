@@ -3,7 +3,7 @@
 # An SPFBL Cheker installer for cPanel.
 #
 # Usage as root:
-#    ./spfbl.cpanel.sh [install|update|uninstall|firewall] 
+#    ./spamfox.cpanel.sh [install|update|uninstall|firewall]
 #    
 # SPFBL is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,6 +22,9 @@
 # https://github.com/leonamp/SPFBL
 #
 # Version: 1.4
+
+# Use SpamFox-branded ACL messages while keeping the SPFBL client/core upstream.
+HAD_ACL_RAW_BASE="https://raw.githubusercontent.com/dgicloud/SPFBL/hadcloud-cpanel-installer/client"
 
 function exim_configuration() {
     # Change parameters in Exim Configuration Manager interface.
@@ -142,9 +145,9 @@ function install() {
         /usr/local/bin/clamav-unofficial-sigs.sh --install-cron --install-logrotate
         
         # Install SPFBL configuration files.
-        wget https://raw.githubusercontent.com/leonamp/SPFBL/master/client/spfbl_end_recipient -O /usr/local/cpanel/etc/exim/acls/ACL_RECIPIENT_BLOCK/spfbl_end_recipient
+        wget "$HAD_ACL_RAW_BASE/spfbl_end_recipient" -O /usr/local/cpanel/etc/exim/acls/ACL_RECIPIENT_BLOCK/spfbl_end_recipient
         wget https://raw.githubusercontent.com/leonamp/SPFBL/master/client/spfbl_begin_smtp_dkim -O /usr/local/cpanel/etc/exim/acls/ACL_SMTP_DKIM_BLOCK/spfbl_begin_smtp_dkim
-        wget https://raw.githubusercontent.com/leonamp/SPFBL/master/client/spfbl_begin_check_message_pre -O /usr/local/cpanel/etc/exim/acls/ACL_CHECK_MESSAGE_PRE_BLOCK/spfbl_begin_check_message_pre
+        wget "$HAD_ACL_RAW_BASE/spfbl_begin_check_message_pre" -O /usr/local/cpanel/etc/exim/acls/ACL_CHECK_MESSAGE_PRE_BLOCK/spfbl_begin_check_message_pre
         
         # Config Exim Configuration Manager interface.
         exim_configuration "spfbl_end_recipient" "1"
@@ -191,9 +194,9 @@ function install() {
 	echo -e '#!/bin/bash\n/usr/local/bin/spfbl holding' > /etc/cron.hourly/spfbl-holding-check
         chmod +x /etc/cron.hourly/spfbl-holding-check
         
-        echo "SPFBL Checker was successfully installed!"
+        echo "SpamFox (SFOX) client was successfully installed!"
         echo ""
-        echo "Installing SPFBL Firewall solution..."
+        echo "Installing SpamFox (SFOX) firewall solution..."
 	
 	# Install firewall solution
 	firewall
@@ -215,9 +218,9 @@ function update() {
         wget https://raw.githubusercontent.com/leonamp/SPFBL/master/client/spfbl.sh -O /usr/local/bin/spfbl
         
         # Replace SPFBL configuration files
-        wget https://raw.githubusercontent.com/leonamp/SPFBL/master/client/spfbl_end_recipient -O /usr/local/cpanel/etc/exim/acls/ACL_RECIPIENT_BLOCK/spfbl_end_recipient
+        wget "$HAD_ACL_RAW_BASE/spfbl_end_recipient" -O /usr/local/cpanel/etc/exim/acls/ACL_RECIPIENT_BLOCK/spfbl_end_recipient
         wget https://raw.githubusercontent.com/leonamp/SPFBL/master/client/spfbl_begin_smtp_dkim -O /usr/local/cpanel/etc/exim/acls/ACL_SMTP_DKIM_BLOCK/spfbl_begin_smtp_dkim
-        wget https://raw.githubusercontent.com/leonamp/SPFBL/master/client/spfbl_begin_check_message_pre -O /usr/local/cpanel/etc/exim/acls/ACL_CHECK_MESSAGE_PRE_BLOCK/spfbl_begin_check_message_pre
+        wget "$HAD_ACL_RAW_BASE/spfbl_begin_check_message_pre" -O /usr/local/cpanel/etc/exim/acls/ACL_CHECK_MESSAGE_PRE_BLOCK/spfbl_begin_check_message_pre
         
         # Config Exim Configuration Manager interface.
         exim_configuration "spfbl_end_recipient" "1"
@@ -246,7 +249,7 @@ function update() {
         rm -f /etc/cron.hourly/spfbl-firewall-update
 	firewall
     else
-        echo "The SPFBL Checker was not installed yet."
+        echo "The SpamFox (SFOX) client was not installed yet."
         exit 1;
     fi
 }
@@ -305,24 +308,24 @@ function firewall() {
     chmod +x /usr/local/bin/spfbl-firewall-update
     /usr/local/bin/spfbl-firewall-update
     
-    echo "SPFBL Firewall was successfully installed!"
+    echo "SpamFox (SFOX) firewall was successfully installed!"
 }
 
 case "$1" in
     install)
-        echo "[install] Installing SPFBL Checker powered by SPFBL.net"
+        echo "[install] Installing SpamFox (SFOX) client powered by SPFBL.net"
         install
     ;;
     update)
-        echo "[update] Updating SPFBL Checker powered by SPFBL.net"
+        echo "[update] Updating SpamFox (SFOX) client powered by SPFBL.net"
         update
     ;;
     uninstall)
-        echo "[uninstall] Uninstalling SPFBL Checker powered by SPFBL.net"
+        echo "[uninstall] Uninstalling SpamFox (SFOX) client powered by SPFBL.net"
         uninstall
     ;;
     firewall)
-        echo "[firewall] Installing SPFBL Firewall powered by SPFBL.net"
+        echo "[firewall] Installing SpamFox (SFOX) firewall powered by SPFBL.net"
         firewall
     ;;
     *)

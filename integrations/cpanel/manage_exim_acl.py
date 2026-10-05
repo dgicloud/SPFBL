@@ -388,7 +388,7 @@ def run_synthetic_smoke(paths, runner=run_command):
         timeout=20,
         input_data=smtp,
     )
-    if "HAD AntiSpam MONITOR RCPT CONTINUE|decision|LAN|" not in output:
+    if "SFOX MONITOR RCPT CONTINUE|decision|LAN|" not in output:
         raise ManagerError("Fake-SMTP não confirmou consulta HAD MONITOR LAN\n" + output[-3000:])
     return output
 
@@ -656,7 +656,7 @@ def healthcheck(paths=None, runner=run_command, preflight=True):
     if BEGIN not in generated or END not in generated:
         raise ManagerError("Configuração Exim gerada não contém o bloco HAD")
     runner([paths.exim_bin, "-C", paths.exim, "-bV"])
-    return "HAD AntiSpam MONITOR presente no hook e na configuração Exim gerada"
+    return "SFOX MONITOR presente no hook e na configuração Exim gerada"
 
 
 def main(argv=None):

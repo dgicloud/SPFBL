@@ -40,25 +40,25 @@
     set acl_c_spfbl_result = $runrc
   defer
     condition = ${if eq {$acl_c_spfbl_result}{2}{true}{false}}
-    message = 4.3.1 SPFBL temporarily out of service. See http://spfbl.net/en/feedback
-    log_message = SPFBL check timeout.
+    message = 4.3.1 SpamFox (SFOX) temporarily out of service. See http://spfbl.net/en/feedback
+    log_message = SFOX check timeout.
   defer
     condition = ${if eq {$acl_c_spfbl_result}{4}{true}{false}}
-    message = 4.3.1 SPFBL temporarily out of service. See http://spfbl.net/en/feedback
-    log_message = SPFBL out of service.
+    message = 4.3.1 SpamFox (SFOX) temporarily out of service. See http://spfbl.net/en/feedback
+    log_message = SFOX out of service.
   deny
     condition = ${if eq {$acl_c_spfbl_result}{1}{true}{false}}
     condition = ${if match {$value}{^BLOCKED https?://}{true}{false}}
-    message = 5.7.1 SPFBL $value
-    log_message = SPFBL check blocked.
+    message = 5.7.1 SpamFox (SFOX) $value
+    log_message = SFOX check blocked.
   deny
     condition = ${if eq {$acl_c_spfbl_result}{1}{true}{false}}
-    message = 5.7.1 SPFBL blocked by unwanted content. See http://spfbl.net/en/feedback
-    log_message = SPFBL check blocked.
+    message = 5.7.1 SpamFox (SFOX) blocked by unwanted content. See http://spfbl.net/en/feedback
+    log_message = SFOX check blocked.
   deny
     condition = ${if eq {$acl_c_spfbl_result}{5}{true}{false}}
-    message = 5.7.1 SPFBL rejected by suspect content. See http://spfbl.net/en/feedback
-    log_message = SPFBL check reject.
+    message = 5.7.1 SpamFox (SFOX) rejected by suspect content. See http://spfbl.net/en/feedback
+    log_message = SFOX check reject.
   deny
     malware = * / defer_ok / tmo=10s
     set acl_c_spfbl = ${run{/usr/local/bin/spfbl malware \
@@ -66,8 +66,8 @@
                                '$malware_name' \
                           }{$value}{$value}}
     condition = ${if eq {$runrc}{7}{false}{true}}
-    message = 5.7.1 SPFBL this message was detected as possible malware. See http://spfbl.net/en/feedback
-    log_message = SPFBL check malware.
+    message = 5.7.1 SpamFox (SFOX) this message was detected as possible malware. See http://spfbl.net/en/feedback
+    log_message = SFOX check malware.
   accept
     condition = ${if eq {$acl_c_spfbl_result}{17}{true}{false}}
     add_header = X-Spam-Status: No
@@ -80,12 +80,12 @@
     spam = $message_exim_id:true / tmo=10s
   drop
     condition = ${if eq {$spam_score}{4.0}{true}{false}}
-    message = 5.7.1 SPFBL this message was detected as possible malware. See http://spfbl.net/en/feedback
-    log_message = SPFBL check malware.
+    message = 5.7.1 SpamFox (SFOX) this message was detected as possible malware. See http://spfbl.net/en/feedback
+    log_message = SFOX check malware.
   deny
     condition = ${if eq {$spam_score}{2.0}{true}{false}}
-    message = 5.7.1 SPFBL blocked by unwanted content. See http://spfbl.net/en/feedback
-    log_message = SPFBL check blocked.
+    message = 5.7.1 SpamFox (SFOX) blocked by unwanted content. See http://spfbl.net/en/feedback
+    log_message = SFOX check blocked.
   accept
     condition = ${if eq {$spam_score}{1.0}{true}{false}}
     add_header = X-Spam-Status: No

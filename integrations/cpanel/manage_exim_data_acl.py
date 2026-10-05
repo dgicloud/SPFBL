@@ -158,7 +158,7 @@ def run_synthetic_data_smoke(paths, runner=run_command, test_recipient=None):
     )
     output = runner([paths.exim_bin, "-C", paths.exim, "-bh", "127.0.0.1"],
                     timeout=20, input_data=smtp)
-    if "HAD AntiSpam MONITOR DATA CONTINUE|header|no_ticket|" not in output:
+    if "SFOX MONITOR DATA CONTINUE|header|no_ticket|" not in output:
         raise ManagerError("Fake-SMTP não confirmou ACL DATA em fail-open sem ticket\n" + output[-3000:])
     return output
 

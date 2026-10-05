@@ -48,7 +48,7 @@ class FakeDataCpanel(object):
             if "-bh" in command:
                 if self.fail_smoke:
                     return "550 existing policy\n"
-                return "LOG: HAD AntiSpam MONITOR DATA CONTINUE|header|no_ticket|0\n"
+                return "LOG: SFOX MONITOR DATA CONTINUE|header|no_ticket|0\n"
             return "Configuration file passes test!\n"
         if command[0] == self.paths.restart_exim:
             return "restart fake success\n"

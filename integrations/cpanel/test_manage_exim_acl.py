@@ -57,7 +57,7 @@ class FakeCpanel(object):
             return "Configuration file passes test! New configuration file was installed.\n"
         if command[0] == self.paths.exim_bin:
             if "-bh" in command:
-                return "LOG: HAD AntiSpam MONITOR RCPT CONTINUE|decision|LAN|1\n550 existing Exim policy\n"
+                return "LOG: SFOX MONITOR RCPT CONTINUE|decision|LAN|1\n550 existing Exim policy\n"
             return "Configuration file passes test!\n"
         if command[0] == self.paths.restart_exim:
             if self.fail_restart_once:
