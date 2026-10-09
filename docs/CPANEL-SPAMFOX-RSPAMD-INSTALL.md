@@ -7,7 +7,26 @@ O pacote não inclui core SPFBL, credenciais, mensagens `.eml`, nem instala Rspa
 ## Pré-requisitos
 
 1. O gateway central precisa estar ativo em `https://matrix.hadcloud.srv.br/internal/sfox/scan`.
-2. No WHM, abra **Service Configuration → Exim Configuration Manager → Advanced Editor**. Em **CONFIG**, configure `system_filter_pipe_transport = had_sfox_content_pipe`. Em **TRANSPORTMIDDLE**, inclua o conteúdo de `integrations/cpanel/exim/transport-content-scan.conf` deste pacote e salve. Não edite o `/etc/exim.conf` gerado manualmente.
+2. No WHM, abra **Service Configuration → Exim Configuration Manager → Advanced Editor**. Em **CONFIG**, adicione:
+
+   ```exim
+   system_filter_pipe_transport = had_sfox_content_pipe
+   ```
+
+   Em **TRANSPORTMIDDLE**, cole exatamente este bloco:
+
+   ```exim
+   had_sfox_content_pipe:
+     driver = pipe
+     environment = HAD_SFOX_BSMTP=1:HAD_SFOX_QUEUE_ID_B64=${base64:$message_exim_id}:HAD_SFOX_SENDER_B64=${base64:$sender_address}:HAD_SFOX_RECIPIENTS_B64=${base64:$recipients}:HAD_SFOX_CLIENT_IP_B64=${base64:$sender_host_address}:HAD_SFOX_HELO_B64=${base64:$sender_helo_name}:HAD_SFOX_RECEIVED_PORT_B64=${base64:$received_port}
+     message_prefix =
+     message_suffix =
+     use_bsmtp = true
+     return_output
+     temp_errors = 75:73
+   ```
+
+   Salve no WHM para o cPanel reconstruir o Exim. Não edite manualmente o `/etc/exim.conf` gerado. O mesmo bloco está no arquivo `integrations/cpanel/exim/transport-content-scan.conf` dentro do pacote.
 3. Confirme que `exim -bP system_filter_pipe_transport system_filter_user system_filter_group` mostra o transporte dedicado e que o Exim continua ativo.
 4. Na VM central, cadastre cada cPanel com um ID próprio e o IP público de saída correto. Habilite autotreino somente para o cliente desejado:
 
@@ -67,4 +86,4 @@ Na VM central, procure `message_queued` e `scan_complete` no log do gateway. As 
 
 O cliente envia o conteúdo da mensagem para a VM HAD via HTTPS, sem gravar `.eml` no cPanel. Assunto e corpo são analisados pelo Rspamd central; o gateway registra metadados operacionais sanitizados. Revogue o token na VM se o cPanel for removido ou comprometido.
 
-O bundle fica em `/opt/spamfox-cpanel/releases/spamfox-rspamd-cpanel-0.1.11-pilot`. Mantenha esse diretório: os utilitários de gerenciamento da ACL Exim dependem dos arquivos do pacote. O hook SPFBL e o cliente nativo não são removidos pelo instalador deste add-on.
+O bundle fica em `/opt/spamfox-cpanel/releases/spamfox-rspamd-cpanel-0.1.12-pilot`. Mantenha esse diretório: os utilitários de gerenciamento da ACL Exim dependem dos arquivos do pacote. O hook SPFBL e o cliente nativo não são removidos pelo instalador deste add-on.
