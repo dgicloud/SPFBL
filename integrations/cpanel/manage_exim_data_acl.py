@@ -109,6 +109,14 @@ def remove_hook_block(current):
     return (current or b"")[:start] + (current or b"")[end:]
 
 
+def replace_hook_block(current, snippet):
+    span = marker_spans(current or b"")
+    if not span:
+        raise ManagerError("Bloco DATA HAD ausente; atualização interrompida")
+    start, end = span
+    return (current or b"")[:start] + snippet + (current or b"")[end:]
+
+
 def load_snippet(paths):
     with open(paths.snippet, "rb") as stream:
         return stream.read()
@@ -158,7 +166,10 @@ def run_synthetic_data_smoke(paths, runner=run_command, test_recipient=None):
     )
     output = runner([paths.exim_bin, "-C", paths.exim, "-bh", "127.0.0.1"],
                     timeout=20, input_data=smtp)
-    if "SFOX MONITOR DATA CONTINUE|header|no_ticket|" not in output:
+    if not any(marker in output for marker in (
+            "SFOX MONITOR DATA CONTINUE|header|no_ticket|",
+            "SFOX MONITOR DATA CONTINUE|header|socket_missing|",
+            "SFOX MONITOR DATA CONTINUE|header|socket_error|")):
         raise ManagerError("Fake-SMTP não confirmou ACL DATA em fail-open sem ticket\n" + output[-3000:])
     return output
 
@@ -206,6 +217,74 @@ def rollback_install(paths, original, metadata, manifest, runner, reload_exim=Fa
         runner([paths.restart_exim])
 
 
+def update_installed_hook(paths, current, metadata, snippet, runner,
+                          reload_exim=False, test_recipient=None):
+    """Replace only a previously managed DATA block, with transactional rollback."""
+    manifest = load_manifest(paths)
+    if manifest.get("status") != "installed":
+        raise ManagerError("Snapshot DATA não está instalado; não atualizei um hook sem baseline")
+    span = marker_spans(current or b"")
+    if not span:
+        raise ManagerError("Bloco DATA HAD ausente; snapshot mantido")
+    start, end = span
+    old_block = (current or b"")[start:end]
+    if sha256(old_block) != manifest.get("managed_block_sha256"):
+        raise ManagerError("Bloco DATA diverge do snapshot instalado; revisão manual necessária")
+    if read_cpanel_option(paths.exim_localopts, LOCALOPTS_KEY) != "1":
+        raise ManagerError("Hook DATA existe, mas está desativado no cPanel")
+    previous_exim_hash = hash_file(paths.exim)
+    source_hashes = (hash_file(paths.exim_local), hash_file(paths.exim_localopts))
+    rcpt_before = has_rcpt_block(read_optional(paths.exim))
+    candidate = replace_hook_block(current, snippet)
+    if candidate == current:
+        run_dry_build(paths, runner=runner)
+        return "already-current"
+
+    atomic_write(paths.hook, candidate, metadata)
+    reload_attempted = False
+    try:
+        run_dry_build(paths, runner=runner)
+        run_full_build(paths, runner=runner, expect_data=True,
+                       expect_rcpt=rcpt_before)
+        run_synthetic_data_smoke(paths, runner=runner,
+                                 test_recipient=test_recipient)
+        if source_hashes != (hash_file(paths.exim_local), hash_file(paths.exim_localopts)):
+            raise ManagerError("Arquivos de origem Exim mudaram durante a atualização")
+        if reload_exim:
+            reload_attempted = True
+            runner([paths.restart_exim])
+
+        updates = list(manifest.get("updates", []))
+        updates.append({
+            "created": int(time.time()),
+            "managed_block_sha256_before": manifest.get("managed_block_sha256"),
+            "managed_block_sha256_after": sha256(snippet),
+            "exim_sha256_before": previous_exim_hash,
+            "exim_sha256_after": hash_file(paths.exim),
+        })
+        manifest["updates"] = updates[-20:]
+        manifest["snippet_sha256"] = sha256(snippet)
+        manifest["managed_block_sha256"] = sha256(snippet)
+        manifest["hook_sha256_installed"] = sha256(read_optional(paths.hook))
+        manifest["exim_sha256_installed"] = hash_file(paths.exim)
+        write_manifest(paths, manifest)
+        ensure_snapshot_permissions(paths)
+        return "updated"
+    except Exception as exc:
+        try:
+            restore(paths.hook, current, metadata)
+            run_full_build(paths, runner=runner, expect_data=True,
+                           expect_rcpt=rcpt_before)
+            run_synthetic_data_smoke(paths, runner=runner,
+                                     test_recipient=test_recipient)
+            if reload_attempted:
+                runner([paths.restart_exim])
+        except Exception as rollback_exc:
+            raise ManagerError("Atualização DATA falhou: {0}; rollback requer atenção: {1}".format(
+                exc, rollback_exc))
+        raise ManagerError("Atualização DATA cancelada e revertida: " + str(exc))
+
+
 def install(paths=None, runner=run_command, reload_exim=False, preflight=True,
             test_recipient=None):
     paths = paths or DataPaths()
@@ -219,8 +298,11 @@ def install(paths=None, runner=run_command, reload_exim=False, preflight=True,
         rcpt_before = has_rcpt_block(read_optional(paths.exim))
         span = marker_spans(current or b"")
         if span:
-            if compose_hook(current, snippet) != current:
-                raise ManagerError("Bloco DATA HAD divergente; instalação interrompida")
+            start, end = span
+            if (current or b"")[start:end] != snippet:
+                return update_installed_hook(
+                    paths, current, metadata, snippet, runner,
+                    reload_exim=reload_exim, test_recipient=test_recipient)
             if read_cpanel_option(paths.exim_localopts, LOCALOPTS_KEY) != "1":
                 raise ManagerError("Bloco DATA existe, mas acl_custom_begin_check_message_pre está desativado; revisão do snapshot necessária")
             run_dry_build(paths, runner=runner)

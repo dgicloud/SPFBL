@@ -154,6 +154,53 @@ class EximDataAclManagerTests(unittest.TestCase):
         self.assertEqual(self.read_file(self.paths.exim), rcpt_baseline)
         self.assertIn(RCPT_BEGIN, self.read_file(self.rcpt_paths.hook))
 
+    def test_install_updates_only_the_unchanged_managed_block_transactionally(self):
+        self.assertEqual(install(self.paths, runner=self.runner, preflight=False,
+                                 test_recipient="postmaster@example.com"), "installed")
+        with open(self.paths.hook, "ab") as stream:
+            stream.write(b"# local operator hook\n")
+        with open(self.paths.exim_localopts, "rb") as stream:
+            localopts = stream.read().replace(b"keep_this_option=1", b"keep_this_option=2")
+        with open(self.paths.exim_localopts, "wb") as stream:
+            stream.write(localopts)
+        before_hook = self.read_file(self.paths.hook)
+        updated_snippet = before_hook.replace(
+            b"# Monitor only.", b"# Monitor only. Updated safely.", 1)
+        self.paths.snippet = os.path.join(self.root, "updated-data-hook.conf")
+        with open(self.paths.snippet, "wb") as stream:
+            stream.write(updated_snippet)
+
+        self.assertEqual(install(self.paths, runner=self.runner, preflight=False,
+                                 test_recipient="postmaster@example.com"), "updated")
+        installed = self.read_file(self.paths.hook)
+        self.assertIn(b"# Monitor only. Updated safely.", installed)
+        self.assertIn(b"BEGIN HAD-ANTISPAM-HEADER-MONITOR", installed)
+        self.assertTrue(installed.endswith(b"# local operator hook\n"))
+        self.assertIn(b"keep_this_option=2", self.read_file(self.paths.exim_localopts))
+        self.assertEqual(self.runner.commands.count([self.paths.restart_exim]), 0)
+
+    def test_failed_managed_block_update_restores_hook_config_and_manifest(self):
+        self.assertEqual(install(self.paths, runner=self.runner, preflight=False,
+                                 test_recipient="postmaster@example.com"), "installed")
+        before_hook = self.read_file(self.paths.hook)
+        before_exim = self.read_file(self.paths.exim)
+        manifest_path = os.path.join(self.paths.state, "manifest.json")
+        before_manifest = self.read_file(manifest_path)
+        self.paths.snippet = os.path.join(self.root, "updated-data-hook.conf")
+        with open(self.paths.snippet, "wb") as stream:
+            stream.write(before_hook.replace(
+                b"# Monitor only.", b"# Monitor only. Updated safely.", 1))
+        self.runner.fail_dry = True
+
+        with self.assertRaisesRegex(ManagerError, "cancelada e revertida"):
+            install(self.paths, runner=self.runner, preflight=False,
+                    test_recipient="postmaster@example.com")
+
+        self.assertEqual(self.read_file(self.paths.hook), before_hook)
+        self.assertEqual(self.read_file(self.paths.exim), before_exim)
+        self.assertEqual(self.read_file(manifest_path), before_manifest)
+        self.assertEqual(self.runner.commands.count([self.paths.restart_exim]), 0)
+
     def test_missing_data_acl_option_is_added_and_removed_without_changing_localopts(self):
         original = DEFAULT_LOCALOPTS_KEY.encode("ascii") + b"=1\nkeep_this_option=1"
         with open(self.paths.exim_localopts, "wb") as stream:

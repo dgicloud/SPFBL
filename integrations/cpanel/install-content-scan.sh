@@ -6,6 +6,7 @@ ROOT=$(cd -- "$HERE/../.." && pwd)
 CLIENT_ID=""
 ENDPOINT="https://matrix.hadcloud.srv.br/internal/sfox/scan"
 TOKEN_FILE=""
+TEST_RECIPIENT=""
 CHECK_ONLY=0
 FILTER_NAME=had-antispam-content-scan
 FILTER_OPTION=/usr/local/cpanel/etc/exim/sysfilter/options/had-antispam-content-scan
@@ -15,6 +16,7 @@ CLIENT_CONFIG_DIR=/etc/had-content-scan
 CLIENT_CONFIG=/etc/had-content-scan/client.json
 LOCK=/run/lock/had-content-scan.lock
 STATE=/var/lib/had-antispam-client/content-scan
+PIPE_TRANSPORT_NAME=had_sfox_content_pipe
 INSTALLED_FILTER=0
 INSTALLED_CLIENT=0
 INSTALLED_CONFIG=0
@@ -22,11 +24,12 @@ INSTALLED_CONFIG_DIR=0
 INSTALLED_LOCK=0
 EXIM_REBUILT=0
 EXIM_RESTARTED=0
+INSTALLED_DATA_ACL=0
 
 fail() { printf 'HAD content scan cPanel: %s\n' "$*" >&2; exit 1; }
 usage() {
     cat <<'EOF'
-Uso: install-content-scan.sh --client-id ID [--token-file ARQUIVO] [--endpoint HTTPS_URL] [--check]
+Uso: install-content-scan.sh --client-id ID [--test-recipient CAIXA_LOCAL] [--token-file ARQUIVO] [--endpoint HTTPS_URL] [--check]
 
 O preflight --check não precisa de token. Na instalação, o token deve estar em
 arquivo root-only; nunca o passe como argumento. O cliente transmite a cópia
@@ -37,6 +40,7 @@ EOF
 while (($#)); do
     case "$1" in
         --client-id) [[ $# -ge 2 ]] || fail '--client-id requer um valor.'; CLIENT_ID=$2; shift 2 ;;
+        --test-recipient) [[ $# -ge 2 ]] || fail '--test-recipient requer um valor.'; TEST_RECIPIENT=$2; shift 2 ;;
         --endpoint) [[ $# -ge 2 ]] || fail '--endpoint requer uma URL.'; ENDPOINT=$2; shift 2 ;;
         --token-file) [[ $# -ge 2 ]] || fail '--token-file requer um arquivo.'; TOKEN_FILE=$2; shift 2 ;;
         --check) CHECK_ONLY=1; shift ;;
@@ -54,13 +58,18 @@ command -v runuser >/dev/null || fail 'runuser não encontrado; não consigo tes
 [[ -d /usr/local/cpanel/etc/exim/sysfilter/options ]] || fail 'diretório de opções system-filter do cPanel não encontrado.'
 [[ -r "$ROOT/integrations/content_scan/scan_client.py" ]] || fail 'scan_client.py ausente no pacote.'
 [[ -r "$HERE/exim/sysfilter-content-scan.conf" ]] || fail 'snippet de system-filter ausente.'
+[[ -r "$HERE/manage_exim_data_acl.py" && -r "$HERE/manage_exim_acl.py" ]] || fail 'gerenciadores da ACL DATA ausentes no pacote.'
+[[ -r "$HERE/exim/acl-data-header-monitor.conf" ]] || fail 'snippet da ACL DATA ausente no pacote.'
 [[ "$CLIENT_ID" =~ ^[a-z0-9][a-z0-9._-]{0,63}$ ]] || fail 'client-id inválido; use letras minúsculas, números, ponto, hífen ou sublinhado.'
 [[ "$ENDPOINT" == "https://matrix.hadcloud.srv.br/internal/sfox/scan" ]] || fail 'endpoint deve ser o HTTPS autorizado da HAD.'
-[[ ! -e "$FILTER_OPTION" ]] || fail "$FILTER_OPTION já existe; preservado."
-[[ ! -e "$CLIENT" && ! -e "$CLIENT_LINK" ]] || fail 'cliente existente foi preservado; remova ou atualize pelo procedimento próprio.'
-[[ ! -e "$CLIENT_CONFIG" ]] || fail "$CLIENT_CONFIG já existe; preservado."
-[[ ! -e "$STATE" ]] || fail "$STATE já existe; revise antes de instalar."
-[[ ! -e "$LOCK" ]] || fail "$LOCK já existe; revise antes de instalar."
+if (( ! CHECK_ONLY )); then
+    [[ -n "$TEST_RECIPIENT" ]] || fail '--test-recipient é obrigatório na instalação; informe uma caixa local que o Exim roteia.'
+    [[ ! -e "$FILTER_OPTION" ]] || fail "$FILTER_OPTION já existe; preservado."
+    [[ ! -e "$CLIENT" && ! -e "$CLIENT_LINK" ]] || fail 'cliente existente foi preservado; remova ou atualize pelo procedimento próprio.'
+    [[ ! -e "$CLIENT_CONFIG" ]] || fail "$CLIENT_CONFIG já existe; preservado."
+    [[ ! -e "$STATE" ]] || fail "$STATE já existe; revise antes de instalar."
+    [[ ! -e "$LOCK" ]] || fail "$LOCK já existe; revise antes de instalar."
+fi
 
 SYSTEM_FILTER=$(/usr/sbin/exim -bP system_filter 2>/dev/null | sed -n 's/^[^=]*= *//p' | head -n1)
 FILTER_USER=$(/usr/sbin/exim -bP system_filter_user 2>/dev/null | sed -n 's/^[^=]*= *//p' | head -n1)
@@ -72,8 +81,14 @@ getent passwd "$FILTER_USER" >/dev/null || fail "usuário do system filter não 
 [[ -n "$FILTER_GROUP" ]] || FILTER_GROUP=$(id -gn "$FILTER_USER") || fail 'não consegui determinar o grupo do system filter.'
 getent group "$FILTER_GROUP" >/dev/null || fail "grupo do system filter não encontrado: $FILTER_GROUP."
 FILTER_GID=$(getent group "$FILTER_GROUP" | cut -d: -f3)
-[[ -n "$PIPE_TRANSPORT" ]] || fail 'system_filter_pipe_transport não está configurado. No WHM, abra Service Configuration > Exim Configuration Manager > Advanced Editor > Add additional configuration setting, defina system_filter_pipe_transport = address_pipe, salve para reconstruir o Exim e execute o instalador novamente.'
-[[ "$PIPE_TRANSPORT" == "address_pipe" ]] || fail "system_filter_pipe_transport está definido como '$PIPE_TRANSPORT'; este instalador exige o transporte pipe padrão do cPanel: address_pipe."
+[[ -n "$PIPE_TRANSPORT" ]] || fail "system_filter_pipe_transport não está configurado; configure-o como $PIPE_TRANSPORT_NAME no WHM."
+[[ "$PIPE_TRANSPORT" == "$PIPE_TRANSPORT_NAME" ]] || fail "system_filter_pipe_transport está definido como '$PIPE_TRANSPORT'; este instalador exige o transporte isolado $PIPE_TRANSPORT_NAME para passar metadados sem argumentos tainted."
+PIPE_TRANSPORT_CONFIG=$(/usr/sbin/exim -bP transport "$PIPE_TRANSPORT_NAME" 2>/dev/null) || fail "transporte $PIPE_TRANSPORT_NAME não foi carregado pelo Exim."
+for REQUIRED_ENV in HAD_SFOX_QUEUE_ID_B64 HAD_SFOX_SENDER_B64 HAD_SFOX_RECIPIENTS_B64 HAD_SFOX_CLIENT_IP_B64 HAD_SFOX_HELO_B64 HAD_SFOX_RECEIVED_PORT_B64; do
+    grep -q "$REQUIRED_ENV" <<<"$PIPE_TRANSPORT_CONFIG" || fail "transporte $PIPE_TRANSPORT_NAME sem a variável $REQUIRED_ENV."
+done
+grep -q 'HAD_SFOX_BSMTP=1' <<<"$PIPE_TRANSPORT_CONFIG" || fail "transporte $PIPE_TRANSPORT_NAME deve ativar o envelope BSMTP para repassar os destinatários."
+grep -Eq '^use_bsmtp( = true)?$' <<<"$PIPE_TRANSPORT_CONFIG" || fail "transporte $PIPE_TRANSPORT_NAME precisa de use_bsmtp = true."
 
 python3 - "$ENDPOINT" "$CLIENT_ID" <<'PY'
 import sys
@@ -109,6 +124,7 @@ if response.status != 403 or b'"error":"forbidden"' not in body:
 PY
 
 if (( CHECK_ONLY )); then
+    python3 "$HERE/manage_exim_data_acl.py" validate || fail 'pré-validação da ACL DATA cPanel falhou.'
     printf 'Pré-verificação concluída; cliente, endpoint HTTPS, system_filter e transporte pipe estão disponíveis.\n'
     exit 0
 fi
@@ -122,6 +138,9 @@ TOKEN_OWNER=$(stat -c '%u' "$TOKEN_FILE")
 rollback() {
     local status=$?
     if (( status != 0 )); then
+        if (( INSTALLED_DATA_ACL )); then
+            python3 "$HERE/manage_exim_data_acl.py" uninstall >/dev/null 2>&1 || true
+        fi
         if (( INSTALLED_FILTER )); then rm -f "$FILTER_OPTION"; fi
         if (( INSTALLED_CLIENT )); then rm -f "$CLIENT" "$CLIENT_LINK"; fi
         if (( INSTALLED_CONFIG )); then rm -f "$CLIENT_CONFIG"; fi
@@ -197,12 +216,18 @@ PY
 INSTALLED_FILTER=1
 install -o root -g root -m 0644 "$HERE/exim/sysfilter-content-scan.conf" "$FILTER_OPTION"
 
+DATA_ACL_RESULT=$(python3 "$HERE/manage_exim_data_acl.py" install --test-recipient "$TEST_RECIPIENT") || fail 'hook DATA de ticket SPFBL não passou rebuild e fake SMTP.'
+if [[ "$DATA_ACL_RESULT" == "installed" ]]; then
+    INSTALLED_DATA_ACL=1
+    EXIM_REBUILT=1
+fi
+
 EXIM_REBUILT=1
 /usr/local/cpanel/scripts/buildeximconf
 ACTIVE_SYSTEM_FILTER=$(/usr/sbin/exim -bP system_filter 2>/dev/null | sed -n 's/^[^=]*= *//p' | head -n1)
 ACTIVE_PIPE_TRANSPORT=$(/usr/sbin/exim -bP system_filter_pipe_transport 2>/dev/null | sed -n 's/^[^=]*= *//p' | head -n1)
 [[ -r "$ACTIVE_SYSTEM_FILTER" ]] || fail 'system_filter ficou ilegível após rebuild.'
-[[ "$ACTIVE_PIPE_TRANSPORT" == "address_pipe" ]] || fail 'o rebuild cPanel não manteve system_filter_pipe_transport = address_pipe.'
+[[ "$ACTIVE_PIPE_TRANSPORT" == "$PIPE_TRANSPORT_NAME" ]] || fail "o rebuild cPanel não manteve system_filter_pipe_transport = $PIPE_TRANSPORT_NAME."
 printf 'From: sender@example.invalid\r\nSubject: synthetic\r\n\r\nbody\r\n' | \
     /usr/sbin/exim -bF "$ACTIVE_SYSTEM_FILTER" >/dev/null 2>&1 || fail 'validação -bF do system-filter falhou.'
 EXIM_RESTARTED=1
@@ -212,5 +237,6 @@ systemctl is-active --quiet exim || fail 'Exim não ficou ativo após reinício.
 trap - EXIT
 rm -rf "$STATE"
 printf 'Coletor de conteúdo instalado em MONITOR: primeira tentativa, mensagens SMTP externas não autenticadas, cópia unseen.\n'
+printf 'Hook DATA transfere o ticket nativo SPFBL válido ao coletor para feedback automático de spam de alta confiança.\n'
 printf 'O cliente sai após fila RAM confirmar 202; resultados Rspamd não alteram aceite nem entrega.\n'
 printf 'Para rollback, remova %s, reconstrua Exim e reinicie pelo script cPanel.\n' "$FILTER_OPTION"
