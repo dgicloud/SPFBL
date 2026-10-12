@@ -48,8 +48,8 @@ class ContentScanTests(unittest.TestCase):
             self.assertEqual(0, scan_client.main([]))
 
         run.assert_called_once_with(
-            "/etc/had-content-scan/client.json",
-            "/run/lock/had-content-scan.lock",
+            "/etc/sfox-content-scan/client.json",
+            "/run/lock/sfox-content-scan.lock",
             stream=scan_client.sys.stdin.buffer,
             message_id=None, queue_id=None, sender=None, recipients=[],
             client_ip=None, helo=None, auth_user=None, received_port=None,

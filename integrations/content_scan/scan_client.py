@@ -26,7 +26,6 @@ from urllib.parse import urlsplit
 CHUNK_SIZE = 64 * 1024
 DEFAULT_MAX_BYTES = 25 * 1024 * 1024
 DEFAULT_TIMEOUT = 20.0
-CLIENT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 MESSAGE_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,128}$")
 ADDRESS_RE = re.compile(r"^[^\s<>@,]+@[^\s<>@,]+$")
 HELO_RE = re.compile(r"^[\x21-\x7e]{1,255}$")
@@ -51,7 +50,7 @@ def log_event(event, **fields):
 
     record = {"event": event}
     record.update(fields)
-    payload = ("<134>had-content-scan: " + json.dumps(
+    payload = ("<134>sfox-content-scan: " + json.dumps(
         record, sort_keys=True, separators=(",", ":")
     )).encode("utf-8")
     try:
@@ -77,19 +76,13 @@ def load_config(path):
         raise ValueError("endpoint must be an HTTPS URL without embedded credentials")
     if parsed.query or parsed.fragment:
         raise ValueError("endpoint must not contain a query or fragment")
-    client_id = config.get("client_id", "")
-    token = config.get("token", "")
-    if not CLIENT_ID_RE.fullmatch(client_id):
-        raise ValueError("invalid client_id")
-    if not isinstance(token, str) or len(token) < 40 or "\r" in token or "\n" in token:
-        raise ValueError("invalid client token")
     max_bytes = config.get("max_bytes", DEFAULT_MAX_BYTES)
     timeout = config.get("timeout_seconds", DEFAULT_TIMEOUT)
     if not isinstance(max_bytes, int) or max_bytes < 1024 or max_bytes > DEFAULT_MAX_BYTES:
         raise ValueError("max_bytes must be between 1 KiB and 25 MiB")
     if not isinstance(timeout, (int, float)) or timeout < 1 or timeout > 60:
         raise ValueError("timeout_seconds must be between 1 and 60")
-    return parsed, client_id, token, max_bytes, float(timeout)
+    return parsed, max_bytes, float(timeout)
 
 
 def _drain(stream):
@@ -420,14 +413,14 @@ def _parse_exim_recipients(value):
 def exim_environment_metadata():
     """Read the Exim system-filter transport metadata without shell arguments."""
     return {
-        "queue_id": _decode_exim_environment("HAD_SFOX_QUEUE_ID_B64"),
-        "sender": _decode_exim_environment("HAD_SFOX_SENDER_B64"),
+        "queue_id": _decode_exim_environment("SFOX_QUEUE_ID_B64") or _decode_exim_environment("HAD_SFOX_QUEUE_ID_B64"),
+        "sender": _decode_exim_environment("SFOX_SENDER_B64") or _decode_exim_environment("HAD_SFOX_SENDER_B64"),
         "recipients": _parse_exim_recipients(
-            _decode_exim_environment("HAD_SFOX_RECIPIENTS_B64") or ""
+            _decode_exim_environment("SFOX_RECIPIENTS_B64") or _decode_exim_environment("HAD_SFOX_RECIPIENTS_B64") or ""
         ),
-        "client_ip": _decode_exim_environment("HAD_SFOX_CLIENT_IP_B64"),
-        "helo": _decode_exim_environment("HAD_SFOX_HELO_B64"),
-        "received_port": _decode_exim_environment("HAD_SFOX_RECEIVED_PORT_B64"),
+        "client_ip": _decode_exim_environment("SFOX_CLIENT_IP_B64") or _decode_exim_environment("HAD_SFOX_CLIENT_IP_B64"),
+        "helo": _decode_exim_environment("SFOX_HELO_B64") or _decode_exim_environment("HAD_SFOX_HELO_B64"),
+        "received_port": _decode_exim_environment("SFOX_RECEIVED_PORT_B64") or _decode_exim_environment("HAD_SFOX_RECEIVED_PORT_B64"),
     }
 
 
@@ -510,7 +503,7 @@ def parse_exim_bsmtp(stream):
         raise ValueError("unexpected BSMTP envelope command")
 
 
-def submit(stream, parsed, client_id, token, message_id, max_bytes, timeout,
+def submit(stream, parsed, message_id, max_bytes, timeout,
            queue_id=None, sender=None, recipients=None, client_ip=None, helo=None,
            auth_user=None, received_port=None, bsmtp_envelope=False, bsmtp_recipient_count=None,
            exim_env_recipient_count=None):
@@ -528,7 +521,6 @@ def submit(stream, parsed, client_id, token, message_id, max_bytes, timeout,
         connection.putrequest("POST", path, skip_accept_encoding=True)
         connection.putheader("Content-Type", "message/rfc822")
         connection.putheader("Transfer-Encoding", "chunked")
-        connection.putheader("X-SFOX-Client", client_id)
         connection.putheader("X-SFOX-Client-Ticket-Status", client_ticket_status)
         if message_id:
             connection.putheader("X-SFOX-Message-ID", message_id)
@@ -543,7 +535,6 @@ def submit(stream, parsed, client_id, token, message_id, max_bytes, timeout,
                                       helo, auth_user, received_port)
         for name, value in monitor_headers(metadata):
             connection.putheader(name, value)
-        connection.putheader("Authorization", "Bearer " + token)
         connection.endheaders()
 
         while True:
@@ -555,7 +546,7 @@ def submit(stream, parsed, client_id, token, message_id, max_bytes, timeout,
                 connection.close()
                 connection = None
                 _drain(stream)
-                log_event("upload_skipped", client_id=client_id, message_id=message_id,
+                log_event("upload_skipped", message_id=message_id,
                           reason="message_too_large", bytes_seen=sent)
                 return False
             connection.send(("%X\r\n" % len(chunk)).encode("ascii"))
@@ -563,7 +554,7 @@ def submit(stream, parsed, client_id, token, message_id, max_bytes, timeout,
             connection.send(b"\r\n")
         if sent == 0:
             connection.close()
-            log_event("upload_skipped", client_id=client_id, message_id=message_id,
+            log_event("upload_skipped", message_id=message_id,
                       reason="empty_message")
             return False
         connection.send(b"0\r\n\r\n")
@@ -571,7 +562,7 @@ def submit(stream, parsed, client_id, token, message_id, max_bytes, timeout,
         response.read(4096)
         elapsed_ms = int((time.time() - started) * 1000)
         if response.status == 202:
-            log_event("upload_queued", client_id=client_id, message_id=message_id,
+            log_event("upload_queued", message_id=message_id,
                       bytes=sent, latency_ms=elapsed_ms,
                       client_ticket_status=client_ticket_status,
                       smtp_recipient_count=len(metadata.get("rcpt", [])),
@@ -579,12 +570,12 @@ def submit(stream, parsed, client_id, token, message_id, max_bytes, timeout,
                       bsmtp_recipient_count=bsmtp_count,
                       exim_env_recipient_count=exim_count)
             return True
-        log_event("upload_skipped", client_id=client_id, message_id=message_id,
+        log_event("upload_skipped", message_id=message_id,
                   reason="gateway_http_status", http_status=response.status,
                   bytes=sent, latency_ms=elapsed_ms)
         return False
     except Exception as exc:
-        log_event("upload_skipped", client_id=client_id, message_id=message_id,
+        log_event("upload_skipped", message_id=message_id,
                   reason="transport_error", error=exc.__class__.__name__, bytes=sent,
                   latency_ms=int((time.time() - started) * 1000))
         return False
@@ -603,7 +594,7 @@ def run(config_path, lock_path, stream=None, message_id=None, queue_id=None,
     stream = stream or sys.stdin.buffer
     message_id = message_id or os.environ.get("MESSAGE_ID", "-")
     try:
-        parsed, client_id, token, max_bytes, timeout = load_config(config_path)
+        parsed, max_bytes, timeout = load_config(config_path)
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
         log_event("upload_skipped", reason="invalid_config", error=exc.__class__.__name__)
         _drain(stream)
@@ -612,7 +603,7 @@ def run(config_path, lock_path, stream=None, message_id=None, queue_id=None,
     try:
         lock = open(lock_path, "a+")
     except OSError as exc:
-        log_event("upload_skipped", client_id=client_id, message_id=message_id,
+        log_event("upload_skipped", message_id=message_id,
                   reason="lock_unavailable", error=exc.__class__.__name__)
         _drain(stream)
         return 0
@@ -621,18 +612,18 @@ def run(config_path, lock_path, stream=None, message_id=None, queue_id=None,
         try:
             import fcntl
         except ImportError:
-            log_event("upload_skipped", client_id=client_id, message_id=message_id,
+            log_event("upload_skipped", message_id=message_id,
                       reason="local_lock_unavailable")
             _drain(stream)
             return 0
         try:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except (IOError, OSError):
-            log_event("upload_skipped", client_id=client_id, message_id=message_id,
+            log_event("upload_skipped", message_id=message_id,
                       reason="local_concurrency_limit")
             _drain(stream)
             return 0
-        submit(stream, parsed, client_id, token, message_id, max_bytes, timeout,
+        submit(stream, parsed, message_id, max_bytes, timeout,
                queue_id=queue_id, sender=sender, recipients=recipients,
                client_ip=client_ip, helo=helo, auth_user=auth_user,
                received_port=received_port,
@@ -649,8 +640,8 @@ def main(argv=None):
 
     argv = list(sys.argv[1:] if argv is None else argv)
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("config_path", nargs="?", default="/etc/had-content-scan/client.json")
-    parser.add_argument("lock_path", nargs="?", default="/run/lock/had-content-scan.lock")
+    parser.add_argument("config_path", nargs="?", default="/etc/sfox-content-scan/client.json")
+    parser.add_argument("lock_path", nargs="?", default="/run/lock/sfox-content-scan.lock")
     parser.add_argument("--message-id", default=None)
     parser.add_argument("--queue-id", default=None)
     parser.add_argument("--sender", default=None)
@@ -665,7 +656,7 @@ def main(argv=None):
     exim_metadata = exim_environment_metadata()
     bsmtp_sender = None
     bsmtp_recipients = []
-    bsmtp_envelope = os.environ.get("HAD_SFOX_BSMTP") == "1"
+    bsmtp_envelope = (os.environ.get("SFOX_BSMTP") or os.environ.get("HAD_SFOX_BSMTP")) == "1"
     bsmtp_recipient_count = None
     if bsmtp_envelope:
         try:

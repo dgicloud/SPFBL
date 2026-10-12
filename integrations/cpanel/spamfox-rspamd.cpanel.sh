@@ -13,4 +13,11 @@ else
     exit 1
 fi
 
+# Upgrade the previous HAD-named collector in place when present.  The
+# migration validates the cPanel-managed Exim configuration before rebuilding.
+if [[ -e /usr/local/cpanel/etc/exim/sysfilter/options/had-antispam-content-scan ]] && \
+        [[ ! -e /usr/local/cpanel/etc/exim/sysfilter/options/sfox-content-scan ]]; then
+    exec bash "$HERE/migrate-sfox-content-scan.sh"
+fi
+
 exec bash "$INSTALLER" "$@"

@@ -6,15 +6,15 @@ ROOT=$(cd -- "$HERE/../.." && pwd)
 ENDPOINT="https://matrix.hadcloud.srv.br/internal/sfox/scan"
 TEST_RECIPIENT=""
 CHECK_ONLY=0
-FILTER_NAME=had-antispam-content-scan
-FILTER_OPTION=/usr/local/cpanel/etc/exim/sysfilter/options/had-antispam-content-scan
-CLIENT=/usr/local/libexec/had-antispam/scan_client.py
-CLIENT_LINK=/usr/local/sbin/had-antispam-content-scan
-CLIENT_CONFIG_DIR=/etc/had-content-scan
-CLIENT_CONFIG=/etc/had-content-scan/client.json
-LOCK=/run/lock/had-content-scan.lock
+FILTER_NAME=sfox-content-scan
+FILTER_OPTION=/usr/local/cpanel/etc/exim/sysfilter/options/sfox-content-scan
+CLIENT=/usr/local/libexec/sfox-content-scan/scan_client.py
+CLIENT_LINK=/usr/local/sbin/sfox-content-scan
+CLIENT_CONFIG_DIR=/etc/sfox-content-scan
+CLIENT_CONFIG=/etc/sfox-content-scan/client.json
+LOCK=/run/lock/sfox-content-scan.lock
 STATE=/var/lib/had-antispam-client/content-scan
-PIPE_TRANSPORT_NAME=had_sfox_content_pipe
+PIPE_TRANSPORT_NAME=sfox_content_pipe
 INSTALLED_FILTER=0
 INSTALLED_CLIENT=0
 INSTALLED_CONFIG=0
@@ -24,7 +24,7 @@ EXIM_REBUILT=0
 EXIM_RESTARTED=0
 INSTALLED_DATA_ACL=0
 
-fail() { printf 'HAD content scan cPanel: %s\n' "$*" >&2; exit 1; }
+fail() { printf 'SFOX content scan cPanel: %s\n' "$*" >&2; exit 1; }
 usage() {
     cat <<'EOF'
 Uso: install-content-scan.sh [--test-recipient CAIXA_LOCAL] [--endpoint HTTPS_URL] [--check]
@@ -78,10 +78,10 @@ FILTER_GID=$(getent group "$FILTER_GROUP" | cut -d: -f3)
 [[ -n "$PIPE_TRANSPORT" ]] || fail "system_filter_pipe_transport não está configurado; configure-o como $PIPE_TRANSPORT_NAME no WHM."
 [[ "$PIPE_TRANSPORT" == "$PIPE_TRANSPORT_NAME" ]] || fail "system_filter_pipe_transport está definido como '$PIPE_TRANSPORT'; este instalador exige o transporte isolado $PIPE_TRANSPORT_NAME para passar metadados sem argumentos tainted."
 PIPE_TRANSPORT_CONFIG=$(/usr/sbin/exim -bP transport "$PIPE_TRANSPORT_NAME" 2>/dev/null) || fail "transporte $PIPE_TRANSPORT_NAME não foi carregado pelo Exim."
-for REQUIRED_ENV in HAD_SFOX_QUEUE_ID_B64 HAD_SFOX_SENDER_B64 HAD_SFOX_RECIPIENTS_B64 HAD_SFOX_CLIENT_IP_B64 HAD_SFOX_HELO_B64 HAD_SFOX_RECEIVED_PORT_B64; do
+for REQUIRED_ENV in SFOX_QUEUE_ID_B64 SFOX_SENDER_B64 SFOX_RECIPIENTS_B64 SFOX_CLIENT_IP_B64 SFOX_HELO_B64 SFOX_RECEIVED_PORT_B64; do
     grep -q "$REQUIRED_ENV" <<<"$PIPE_TRANSPORT_CONFIG" || fail "transporte $PIPE_TRANSPORT_NAME sem a variável $REQUIRED_ENV."
 done
-grep -q 'HAD_SFOX_BSMTP=1' <<<"$PIPE_TRANSPORT_CONFIG" || fail "transporte $PIPE_TRANSPORT_NAME deve ativar o envelope BSMTP para repassar os destinatários."
+grep -q 'SFOX_BSMTP=1' <<<"$PIPE_TRANSPORT_CONFIG" || fail "transporte $PIPE_TRANSPORT_NAME deve ativar o envelope BSMTP para repassar os destinatários."
 grep -Eq '^use_bsmtp( = true)?$' <<<"$PIPE_TRANSPORT_CONFIG" || fail "transporte $PIPE_TRANSPORT_NAME precisa de use_bsmtp = true."
 
 python3 - "$ENDPOINT" <<'PY'
@@ -141,7 +141,7 @@ rollback() {
 }
 trap rollback EXIT
 
-install -d -o root -g root -m 0755 /usr/local/libexec/had-antispam
+install -d -o root -g root -m 0755 /usr/local/libexec/sfox-content-scan
 install -d -o root -g root -m 0755 /usr/local/sbin
 if [[ -e "$CLIENT_CONFIG_DIR" ]]; then
     [[ -d "$CLIENT_CONFIG_DIR" && ! -L "$CLIENT_CONFIG_DIR" ]] || fail "$CLIENT_CONFIG_DIR existe e não é um diretório seguro; preservado."

@@ -27,36 +27,36 @@ class ContentScanFilterTests(unittest.TestCase):
                          "MONITOR must keep analyzing all eligible traffic; the gateway gates only learning")
 
         for name, variable in (
-            ("HAD_SFOX_QUEUE_ID_B64", "$message_exim_id"),
-            ("HAD_SFOX_SENDER_B64", "$sender_address"),
-            ("HAD_SFOX_RECIPIENTS_B64", "$recipients"),
-            ("HAD_SFOX_CLIENT_IP_B64", "$sender_host_address"),
-            ("HAD_SFOX_HELO_B64", "$sender_helo_name"),
-            ("HAD_SFOX_RECEIVED_PORT_B64", "$received_port"),
+            ("SFOX_QUEUE_ID_B64", "$message_exim_id"),
+            ("SFOX_SENDER_B64", "$sender_address"),
+            ("SFOX_RECIPIENTS_B64", "$recipients"),
+            ("SFOX_CLIENT_IP_B64", "$sender_host_address"),
+            ("SFOX_HELO_B64", "$sender_helo_name"),
+            ("SFOX_RECEIVED_PORT_B64", "$received_port"),
         ):
             self.assertIn(name + "=${base64:" + variable + "}", transport_text)
         self.assertIn("driver = pipe", transport_text)
         self.assertIn("message_prefix =", transport_text)
         self.assertIn("message_suffix =", transport_text)
-        self.assertIn("HAD_SFOX_BSMTP=1", transport_text)
+        self.assertIn("SFOX_BSMTP=1", transport_text)
         self.assertIn("use_bsmtp = true", transport_text)
-        self.assertIn("HAD_SFOX_BSMTP=1", installer)
+        self.assertIn("SFOX_BSMTP=1", installer)
         self.assertIn("use_bsmtp", installer)
 
         client = (ROOT / "integrations/content_scan/scan_client.py").read_text()
         self.assertIn(
-            'default="/etc/had-content-scan/client.json"',
+            'default="/etc/sfox-content-scan/client.json"',
             client,
         )
         self.assertIn(
-            'default="/run/lock/had-content-scan.lock"',
+            'default="/run/lock/sfox-content-scan.lock"',
             client,
         )
         self.assertIn(constants["CLIENT_CONFIG"], client)
         self.assertIn(constants["LOCK"], client)
-        for name in ("HAD_SFOX_QUEUE_ID_B64", "HAD_SFOX_SENDER_B64",
-                     "HAD_SFOX_RECIPIENTS_B64", "HAD_SFOX_CLIENT_IP_B64",
-                     "HAD_SFOX_HELO_B64", "HAD_SFOX_RECEIVED_PORT_B64"):
+        for name in ("SFOX_QUEUE_ID_B64", "SFOX_SENDER_B64",
+                     "SFOX_RECIPIENTS_B64", "SFOX_CLIENT_IP_B64",
+                     "SFOX_HELO_B64", "SFOX_RECEIVED_PORT_B64"):
             self.assertIn(name, client)
 
     def test_data_hook_forwards_only_a_native_single_recipient_inbound_ticket(self):

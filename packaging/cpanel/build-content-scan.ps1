@@ -4,7 +4,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
-$OutputDir = Join-Path $Root ".audit\content-scan-cpanel"
+$OutputDir = Join-Path $Root "packaging\cpanel\releases"
 
 if (-not $Version) {
     $Version = (& git -C $Root rev-parse --short HEAD).Trim()
@@ -20,7 +20,7 @@ if ($Version -notmatch '^[A-Za-z0-9._-]+$') {
 }
 
 $Tar = (Get-Command tar.exe -ErrorAction Stop).Source
-$BundleName = "had-content-scan-cpanel-$Version"
+$BundleName = "spamfox-content-scan-cpanel-$Version"
 $Archive = Join-Path $OutputDir "$BundleName.tar.gz"
 if (Test-Path -LiteralPath $Archive) {
     throw "O pacote já existe e não será sobrescrito: $Archive"
@@ -31,7 +31,13 @@ $RequiredFiles = @(
     "docs\CPANEL-RSPAMD-CONTENT-SCAN.md",
     "integrations\content_scan\scan_client.py",
     "integrations\cpanel\exim\sysfilter-content-scan.conf",
-    "integrations\cpanel\install-content-scan.sh"
+    "integrations\cpanel\exim\transport-content-scan.conf",
+    "integrations\cpanel\exim\acl-data-header-monitor.conf",
+    "integrations\cpanel\manage_exim_acl.py",
+    "integrations\cpanel\manage_exim_data_acl.py",
+    "integrations\cpanel\install-content-scan.sh",
+    "integrations\cpanel\migrate-sfox-content-scan.sh",
+    "integrations\cpanel\spamfox-rspamd.cpanel.sh"
 )
 foreach ($RelativePath in $RequiredFiles) {
     $Path = Join-Path $Root $RelativePath
