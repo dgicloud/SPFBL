@@ -3,8 +3,6 @@
 
 from __future__ import print_function
 
-import hashlib
-import hmac
 import http.client
 import ipaddress
 import json
@@ -16,14 +14,21 @@ import socket
 import sys
 import threading
 import time
+from time import monotonic
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
+
+import scan_client
+import spfbl_feedback
 
 MAX_MESSAGE_BYTES = 25 * 1024 * 1024
 MAX_RSPAMD_RESPONSE_BYTES = 1024 * 1024
 CLIENT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 MESSAGE_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,128}$")
 SYMBOL_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+PERCENT_RE = re.compile(r"^\s*(\d{1,3}(?:\.\d+)?)%\s*$")
+TICKET_STATUS_VALUES = scan_client.TICKET_STATUS_VALUES
+DEFAULT_MTA_ALLOWLIST = "/etc/had-antispam/allowed-cpanels.txt"
 
 
 def emit_log(event, **fields):
@@ -42,25 +47,69 @@ def parse_client_config(path):
     return clients
 
 
-def validate_client(clients, client_id, token, source_ip):
-    if not CLIENT_ID_RE.fullmatch(client_id or ""):
-        return False
-    client = clients.get(client_id)
-    if not isinstance(client, dict) or client.get("enabled", True) is not True:
-        return False
-    saved_digest = client.get("token_sha256", "")
-    supplied_digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
-    if not isinstance(saved_digest, str) or len(saved_digest) != 64:
-        return False
-    if not hmac.compare_digest(saved_digest, supplied_digest):
-        return False
+def _allowlist_profile(source_ip, allowlist_path):
+    """Return a conservative profile for a source admitted by SPFBL itself."""
     try:
         address = ipaddress.ip_address(source_ip)
+        networks = set()
+        with open(allowlist_path, "r") as stream:
+            for raw in stream:
+                value = raw.split("#", 1)[0].strip()
+                if not value:
+                    continue
+                network = ipaddress.ip_network(value, strict=False)
+                if network.prefixlen != 0:
+                    networks.add(network)
+    except (OSError, ValueError, TypeError):
+        return None
+    if not any(address in network for network in networks):
+        return None
+    return "allowlist-" + str(address).replace(".", "-").replace(":", "-"), {
+        "allowed_cidrs": [],
+        "enabled": True,
+        "autolearn_enabled": True,
+        # Sending a SPAM ticket to SPFBL stays opt-in per explicit profile.
+        "spfbl_feedback_enabled": False,
+    }
+
+
+def resolve_client(clients, source_ip, allowlist_path=DEFAULT_MTA_ALLOWLIST):
+    """Resolve one enabled internal profile from an explicitly allowed source IP."""
+    try:
+        address = ipaddress.ip_address(source_ip)
+    except (ValueError, TypeError):
+        return None
+
+    matches = []
+    for client_id, client in clients.items():
+        if not CLIENT_ID_RE.fullmatch(client_id or "") or not isinstance(client, dict):
+            continue
+        if client.get("enabled", True) is not True:
+            continue
+        cidr_values = client.get("allowed_cidrs", [])
+        if not isinstance(cidr_values, list):
+            continue
+        try:
+            networks = [ipaddress.ip_network(item, strict=False) for item in cidr_values]
+        except (ValueError, TypeError):
+            continue
+        if any(address in network for network in networks):
+            matches.append((client_id, client))
+
+    # Overlapping explicit profiles are ambiguous and fail closed.
+    if len(matches) > 1:
+        return None
+    if not matches:
+        return _allowlist_profile(source_ip, allowlist_path)
+    client_id, client = matches[0]
+    try:
         networks = [ipaddress.ip_network(item, strict=False)
                     for item in client.get("allowed_cidrs", [])]
     except (ValueError, TypeError):
-        return False
-    return any(address in network for network in networks)
+        return None
+    if any(address in network for network in networks):
+        return client_id, client
+    return None
 
 
 def read_chunked(stream, max_bytes):
@@ -126,19 +175,48 @@ def _safe_summary(response_body):
         required_score = None
     symbols = result.get("symbols", {})
     names = []
+    bayes_spam_probability = None
+    bayes_ham_probability = None
     if isinstance(symbols, dict):
         names = sorted(name for name in symbols if isinstance(name, str) and SYMBOL_RE.match(name))
+        for symbol, field in (("BAYES_SPAM", "bayes_spam_probability"),
+                              ("BAYES_HAM", "bayes_ham_probability")):
+            entry = symbols.get(symbol)
+            options = entry.get("options", []) if isinstance(entry, dict) else []
+            probability = None
+            if isinstance(options, (list, tuple)):
+                for option in options:
+                    match = PERCENT_RE.fullmatch(str(option))
+                    if match:
+                        value = float(match.group(1))
+                        if 0.0 <= value <= 100.0:
+                            probability = value
+                        break
+            if field == "bayes_spam_probability":
+                bayes_spam_probability = probability
+            else:
+                bayes_ham_probability = probability
     return {"action": action, "score": score, "required_score": required_score,
-            "symbols": names[:64]}
+            "symbols": names[:64], "bayes_spam_probability": bayes_spam_probability,
+            "bayes_ham_probability": bayes_ham_probability}
 
 
-def scan_with_rspamd(body, host="127.0.0.1", port=11333, timeout=12.0):
+def scan_with_rspamd(body, metadata=None, host="127.0.0.1", port=11333, timeout=12.0):
     connection = http.client.HTTPConnection(host, port, timeout=timeout)
     try:
         connection.putrequest("POST", "/checkv2")
         connection.putheader("Content-Type", "message/rfc822")
         connection.putheader("Content-Length", str(len(body)))
-        connection.putheader("Flags", "no_log")
+        metadata = metadata or {}
+        for key, header in (("queue_id", "Queue-Id"), ("from", "From"),
+                            ("ip", "IP"), ("helo", "Helo"), ("user", "User")):
+            value = metadata.get(key)
+            if value:
+                connection.putheader(header, value)
+        for recipient in metadata.get("rcpt", []):
+            connection.putheader("Rcpt", recipient)
+        if metadata.get("autolearn") is True:
+            connection.putheader("Settings-ID", "spamfox_content_autolearn")
         connection.endheaders()
         view = memoryview(body)
         for offset in range(0, len(view), 64 * 1024):
@@ -153,6 +231,34 @@ def scan_with_rspamd(body, host="127.0.0.1", port=11333, timeout=12.0):
         return _safe_summary(data)
     finally:
         connection.close()
+
+
+def metadata_fields_present(metadata):
+    """Return only fixed field names; never expose SMTP metadata values in logs."""
+    metadata = metadata or {}
+    fields = []
+    if metadata.get("queue_id"):
+        fields.append("queue_id")
+    if metadata.get("from") not in (None, "", "<>"):
+        fields.append("sender")
+    if metadata.get("rcpt"):
+        fields.append("recipient")
+    if metadata.get("ip"):
+        fields.append("client_ip")
+    if metadata.get("helo"):
+        fields.append("helo")
+    if metadata.get("received_port"):
+        fields.append("received_port")
+    return fields
+
+
+def bounded_diagnostic_count(headers, name):
+    """Read a client-supplied count without accepting unbounded log values."""
+    value = headers.get(name, "")
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9]{1,3}", value):
+        return None
+    count = int(value)
+    return count if count <= 101 else None
 
 
 class ScanHandler(BaseHTTPRequestHandler):
@@ -192,19 +298,18 @@ class ScanHandler(BaseHTTPRequestHandler):
             self._reply(403, {"error": "proxy_only"})
             return
 
-        client_id = self.headers.get("X-SFOX-Client", "")
-        token_header = self.headers.get("Authorization", "")
-        token = token_header[7:] if token_header.startswith("Bearer ") else ""
         try:
             source_ip = str(ipaddress.ip_address(self.headers.get("X-Real-IP", "")))
             clients = parse_client_config(self.server.clients_path)
         except (OSError, ValueError, TypeError):
             self._reply(503, {"error": "gateway_configuration"})
             return
-        if not token or not validate_client(clients, client_id, token, source_ip):
-            emit_log("request_denied", reason="auth_or_source", client_id=client_id[:64])
+        client_match = resolve_client(clients, source_ip, self.server.allowlist_path)
+        if client_match is None:
+            emit_log("request_denied", reason="source_not_allowed", source_ip=source_ip)
             self._reply(403, {"error": "forbidden"})
             return
+        client_id, registered_client = client_match
 
         transfer_encoding = self.headers.get("Transfer-Encoding", "").lower().strip()
         content_length_values = self.headers.get_all("Content-Length", []) or []
@@ -241,8 +346,49 @@ class ScanHandler(BaseHTTPRequestHandler):
         message_id = self.headers.get("X-SFOX-Message-ID", "-")
         if not MESSAGE_ID_RE.fullmatch(message_id):
             message_id = "-"
+        client_ticket_status = self.headers.get("X-SFOX-Client-Ticket-Status")
+        if client_ticket_status not in TICKET_STATUS_VALUES:
+            client_ticket_status = ("unavailable" if client_ticket_status is None
+                                    else "invalid")
+        metadata = scan_client.normalize_metadata(
+            queue_id=self.headers.get("X-SFOX-SMTP-Queue-ID"),
+            sender=self.headers.get("X-SFOX-SMTP-From"),
+            recipients=self.headers.get_all("X-SFOX-SMTP-Rcpt", []) or [],
+            client_ip=self.headers.get("X-SFOX-SMTP-IP"),
+            helo=self.headers.get("X-SFOX-SMTP-HELO"),
+            auth_user=self.headers.get("X-SFOX-SMTP-User"),
+            received_port=self.headers.get("X-SFOX-SMTP-Received-Port"),
+        )
+        bsmtp_envelope_header = self.headers.get("X-SFOX-BSMTP-Envelope")
+        metadata["diagnostic_bsmtp_envelope"] = (
+            bsmtp_envelope_header == "1" if bsmtp_envelope_header in ("0", "1") else None
+        )
+        scan_client.require_received_port_for_bsmtp(
+            metadata, metadata["diagnostic_bsmtp_envelope"] is True)
+        metadata["diagnostic_bsmtp_recipient_count"] = bounded_diagnostic_count(
+            self.headers, "X-SFOX-BSMTP-Recipient-Count")
+        metadata["diagnostic_exim_env_recipient_count"] = bounded_diagnostic_count(
+            self.headers, "X-SFOX-Exim-Recipient-Count")
+        # Exim's after-queue BSMTP envelope is authoritative for feedback
+        # cardinality. Its RCPT syntax may not pass the optional address
+        # validator, so never infer a multi/single-recipient verdict from the
+        # (possibly empty) normalized address list when BSMTP is present.
+        if metadata["diagnostic_bsmtp_envelope"] is True:
+            metadata["spfbl_recipient_count"] = metadata[
+                "diagnostic_bsmtp_recipient_count"]
+        else:
+            metadata["spfbl_recipient_count"] = len(metadata.get("rcpt", []))
+        metadata["autolearn"] = bool(
+            isinstance(registered_client, dict)
+            and registered_client.get("autolearn_enabled") is True
+            and metadata.get("autolearn_eligible")
+        )
+        metadata["spfbl_feedback_enabled"] = bool(
+            isinstance(registered_client, dict)
+            and registered_client.get("spfbl_feedback_enabled") is True
+        )
         max_bytes = self.server.max_message_bytes
-        started = time.time()
+        started = monotonic()
         try:
             if transfer_encoding == "chunked":
                 body = read_chunked(self.rfile, max_bytes)
@@ -250,10 +396,32 @@ class ScanHandler(BaseHTTPRequestHandler):
                 body = read_content_length(self.rfile, content_length, max_bytes)
             if not body:
                 raise ValueError("empty message")
-            self.server.work_queue.put_nowait((client_id, message_id, body, len(body), started))
+            ticket_record, ticket_status = scan_client.extract_spfbl_feedback_ticket(body)
+            metadata["spfbl_ticket"] = ticket_record
+            metadata["spfbl_ticket_status"] = ticket_status
+            metadata["client_ticket_status"] = client_ticket_status
+            metadata["ticket_status_match"] = (
+                client_ticket_status == ticket_status
+                if client_ticket_status in TICKET_STATUS_VALUES else None
+            )
+            queued_at = monotonic()
+            self.server.work_queue.put_nowait((client_id, message_id, body, len(body),
+                                               queued_at, metadata))
             self.server.upload_slots.release()
             emit_log("message_queued", client_id=client_id, message_id=message_id,
-                     bytes=len(body), queue_depth=self.server.work_queue.qsize())
+                     bytes=len(body), queue_depth=self.server.work_queue.qsize(),
+                     intake_ms=max(0, int((queued_at - started) * 1000)), timing_version=2,
+                     smtp_metadata_fields_present=metadata_fields_present(metadata),
+                     smtp_recipient_count=len(metadata.get("rcpt", [])),
+                     client_ticket_status=client_ticket_status,
+                     spfbl_ticket_status=ticket_status,
+                     ticket_status_match=metadata["ticket_status_match"],
+                     spfbl_feedback_recipient_count=metadata.get("spfbl_recipient_count"),
+                     bsmtp_envelope=metadata.get("diagnostic_bsmtp_envelope"),
+                     bsmtp_recipient_count=metadata.get("diagnostic_bsmtp_recipient_count"),
+                     exim_env_recipient_count=metadata.get("diagnostic_exim_env_recipient_count"),
+                     autolearn_eligibility=metadata.get("autolearn_ineligibility_reason",
+                                                        "ineligible"))
             self._reply(202, {"queued": True})
         except queue.Full:
             self.server.upload_slots.release()
@@ -280,8 +448,10 @@ class BoundedThreadingHTTPServer(ThreadingMixIn, HTTPServer):
     allow_reuse_address = True
 
     def __init__(self, address, handler, clients_path, max_message_bytes,
-                 queue_size, worker_count, max_handlers):
+                 queue_size, worker_count, max_handlers,
+                 allowlist_path=DEFAULT_MTA_ALLOWLIST):
         self.clients_path = clients_path
+        self.allowlist_path = allowlist_path
         self.max_message_bytes = max_message_bytes
         self.worker_count = worker_count
         self.work_queue = queue.Queue(maxsize=queue_size + worker_count)
@@ -322,19 +492,50 @@ class BoundedThreadingHTTPServer(ThreadingMixIn, HTTPServer):
             if item is None:
                 self.work_queue.task_done()
                 return
-            client_id, message_id, body, size, queued_at = item
-            started = time.time()
+            client_id, message_id, body, size, queued_at, metadata = item
+            started = monotonic()
             try:
-                result = scan_with_rspamd(body)
+                # The internal SPFBL ticket is a control value, never a content signal.
+                clean_body = scan_client.strip_spfbl_feedback_header(
+                    body, remove_native=True)
+                result = scan_with_rspamd(clean_body, metadata=metadata)
+                feedback_action, feedback_reason = spfbl_feedback.feedback_eligibility(
+                    metadata, metadata.get("spfbl_ticket"), result,
+                    metadata.get("spfbl_feedback_enabled") is True)
+                feedback_status = feedback_reason
+                feedback_policy = feedback_reason if feedback_action == "spam" else None
+                feedback_latency_ms = 0
+                if feedback_action == "spam":
+                    feedback_started = monotonic()
+                    feedback_status = spfbl_feedback.submit_spam_ticket(
+                        metadata["spfbl_ticket"]["ticket"])
+                    feedback_latency_ms = max(0, int((monotonic() - feedback_started) * 1000))
                 emit_log("scan_complete", client_id=client_id, message_id=message_id,
                          bytes=size, queue_ms=max(0, int((started - queued_at) * 1000)),
-                         scan_ms=max(0, int((time.time() - started) * 1000)),
+                         scan_ms=max(0, int((monotonic() - started) * 1000)), timing_version=2,
+                         smtp_metadata_complete=metadata.get("autolearn_eligible") is True,
+                         autolearn_eligibility=metadata.get("autolearn_ineligibility_reason",
+                                                            "ineligible"),
+                         autolearn_profile_selected=metadata.get("autolearn") is True,
+                         smtp_recipient_count=len(metadata.get("rcpt", [])),
+                         client_ticket_status=metadata.get("client_ticket_status"),
+                         spfbl_ticket_status=metadata.get("spfbl_ticket_status"),
+                         ticket_status_match=metadata.get("ticket_status_match"),
+                         spfbl_feedback_recipient_count=metadata.get("spfbl_recipient_count"),
+                         bsmtp_envelope=metadata.get("diagnostic_bsmtp_envelope"),
+                         bsmtp_recipient_count=metadata.get("diagnostic_bsmtp_recipient_count"),
+                         exim_env_recipient_count=metadata.get("diagnostic_exim_env_recipient_count"),
                          score=result["score"], required_score=result["required_score"],
-                         action=result["action"], symbols=result["symbols"])
+                         action=result["action"], symbols=result["symbols"],
+                         bayes_spam_probability=result.get("bayes_spam_probability"),
+                         bayes_ham_probability=result.get("bayes_ham_probability"),
+                         spfbl_feedback=feedback_status,
+                         spfbl_feedback_policy=feedback_policy,
+                         spfbl_feedback_latency_ms=feedback_latency_ms)
             except Exception as exc:
                 emit_log("scan_failed", client_id=client_id, message_id=message_id,
                          bytes=size, error=exc.__class__.__name__,
-                         elapsed_ms=max(0, int((time.time() - started) * 1000)))
+                         elapsed_ms=max(0, int((monotonic() - started) * 1000)), timing_version=2)
             finally:
                 del body
                 self.pending_slots.release()
@@ -342,12 +543,13 @@ class BoundedThreadingHTTPServer(ThreadingMixIn, HTTPServer):
 
 
 def run_server(bind="127.0.0.1", port=11335, clients_path="/etc/had-antispam/content-scan-clients.json",
+               allowlist_path=DEFAULT_MTA_ALLOWLIST,
                max_message_bytes=MAX_MESSAGE_BYTES, queue_size=4, worker_count=2,
                max_handlers=2):
     address = (bind, port)
     server = BoundedThreadingHTTPServer(address, ScanHandler, clients_path,
                                         max_message_bytes, queue_size, worker_count,
-                                        max_handlers)
+                                        max_handlers, allowlist_path)
     server.start_workers()
     emit_log("gateway_started", bind=bind, port=port, max_message_bytes=max_message_bytes,
              queue_size=queue_size, worker_count=worker_count)
@@ -366,6 +568,7 @@ def main(argv=None):
     parser.add_argument("--bind", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=11335)
     parser.add_argument("--clients", default="/etc/had-antispam/content-scan-clients.json")
+    parser.add_argument("--allowlist", default=DEFAULT_MTA_ALLOWLIST)
     parser.add_argument("--max-message-bytes", type=int, default=MAX_MESSAGE_BYTES)
     parser.add_argument("--queue-size", type=int, default=4)
     parser.add_argument("--workers", type=int, default=2)
@@ -376,7 +579,7 @@ def main(argv=None):
         parser.error("invalid port or message limit")
     if not 1 <= args.queue_size <= 16 or not 1 <= args.workers <= 4:
         parser.error("queue/workers outside supported bounds")
-    run_server(args.bind, args.port, args.clients, args.max_message_bytes,
+    run_server(args.bind, args.port, args.clients, args.allowlist, args.max_message_bytes,
                args.queue_size, args.workers)
     return 0
 

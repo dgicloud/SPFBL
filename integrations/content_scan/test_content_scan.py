@@ -1,4 +1,3 @@
-import hashlib
 import base64
 import http.client
 import io
@@ -57,6 +56,23 @@ class ContentScanTests(unittest.TestCase):
             bsmtp_envelope=False,
             bsmtp_recipient_count=None, exim_env_recipient_count=0,
         )
+
+    def test_client_config_needs_only_endpoint_and_limits(self):
+        temp_dir = tempfile.mkdtemp(prefix="had-content-scan-client-")
+        path = os.path.join(temp_dir, "client.json")
+        try:
+            with open(path, "w") as stream:
+                json.dump({"endpoint": "https://matrix.hadcloud.srv.br/internal/sfox/scan",
+                           "max_bytes": 1024, "timeout_seconds": 4}, stream)
+            with mock.patch.object(scan_client.os, "stat",
+                                   return_value=mock.Mock(st_mode=0o100600)):
+                parsed, max_bytes, timeout = scan_client.load_config(path)
+            self.assertEqual("matrix.hadcloud.srv.br", parsed.hostname)
+            self.assertEqual(1024, max_bytes)
+            self.assertEqual(4.0, timeout)
+        finally:
+            os.unlink(path)
+            os.rmdir(temp_dir)
 
     def test_exim_client_metadata_is_read_from_validated_base64_environment(self):
         values = {
@@ -403,24 +419,47 @@ class ContentScanTests(unittest.TestCase):
         self.assertEqual("target_invalid", spfbl_feedback.submit_spam_ticket(
             "T" * 48, host="matrix.hadcloud.srv.br", connection_factory=connect))
 
-    def test_client_token_is_bound_to_client_and_source_cidr(self):
-        token = "t" * 48
+    def test_allowlisted_source_ip_resolves_one_internal_profile(self):
         clients = {"mx-one": {
-            "token_sha256": hashlib.sha256(token.encode("ascii")).hexdigest(),
             "allowed_cidrs": ["198.51.100.16/28"],
             "enabled": True,
         }}
-        self.assertTrue(scan_gateway.validate_client(clients, "mx-one", token, "198.51.100.18"))
-        self.assertFalse(scan_gateway.validate_client(clients, "mx-one", token, "198.51.100.40"))
-        self.assertFalse(scan_gateway.validate_client(clients, "mx-one", "wrong", "198.51.100.18"))
+        self.assertEqual("mx-one", scan_gateway.resolve_client(
+            clients, "198.51.100.18")[0])
+        self.assertIsNone(scan_gateway.resolve_client(
+            clients, "198.51.100.40"))
+
+    def test_core_allowlist_admits_monitor_without_a_second_profile(self):
+        temp_dir = tempfile.mkdtemp(prefix="had-content-scan-allowlist-")
+        allowlist = os.path.join(temp_dir, "allowed-cpanels.txt")
+        try:
+            with open(allowlist, "w") as stream:
+                stream.write("198.51.100.26/32 # postfix two\n")
+            client_id, profile = scan_gateway.resolve_client(
+                {}, "198.51.100.26", allowlist)
+            self.assertEqual("allowlist-198-51-100-26", client_id)
+            self.assertTrue(profile["autolearn_enabled"])
+            self.assertFalse(profile["spfbl_feedback_enabled"])
+            self.assertIsNone(scan_gateway.resolve_client({}, "198.51.100.27", allowlist))
+        finally:
+            try:
+                os.unlink(allowlist)
+                os.rmdir(temp_dir)
+            except OSError:
+                pass
+
+    def test_overlapping_source_ranges_fail_closed_instead_of_choosing_a_profile(self):
+        clients = {
+            "mx-one": {"allowed_cidrs": ["198.51.100.0/24"]},
+            "mx-two": {"allowed_cidrs": ["198.51.100.18/32"]},
+        }
+        self.assertIsNone(scan_gateway.resolve_client(clients, "198.51.100.18"))
 
     def test_gateway_queues_chunked_message_then_worker_scans_it(self):
         temp_dir = tempfile.mkdtemp(prefix="had-content-scan-")
         config_path = os.path.join(temp_dir, "clients.json")
-        token = "x" * 48
         with open(config_path, "w") as stream:
             json.dump({"clients": {"mx-one": {
-                "token_sha256": hashlib.sha256(token.encode("ascii")).hexdigest(),
                 "allowed_cidrs": ["198.51.100.25/32"],
                 "enabled": True, "autolearn_enabled": True,
             }}}, stream)
@@ -459,7 +498,6 @@ class ContentScanTests(unittest.TestCase):
                 connection.putrequest("POST", "/v1/scan")
                 connection.putheader("Transfer-Encoding", "chunked")
                 connection.putheader("Content-Type", "message/rfc822")
-                connection.putheader("X-SFOX-Client", "mx-one")
                 connection.putheader("X-SFOX-Message-ID", "1xTEST-000000000001")
                 connection.putheader("X-SFOX-SMTP-Queue-ID", "1xTEST-000000000001")
                 connection.putheader("X-SFOX-SMTP-From", "sender@example.invalid")
@@ -471,7 +509,6 @@ class ContentScanTests(unittest.TestCase):
                 connection.putheader("X-SFOX-Exim-Recipient-Count", "0")
                 connection.putheader("X-SFOX-Client-Ticket-Status", "ticket_present")
                 connection.putheader("X-Real-IP", "198.51.100.25")
-                connection.putheader("Authorization", "Bearer " + token)
                 connection.endheaders()
                 connection.send(("%X\r\n" % len(payload)).encode("ascii") + payload + b"\r\n0\r\n\r\n")
                 response = connection.getresponse()
@@ -485,6 +522,7 @@ class ContentScanTests(unittest.TestCase):
                 self.assertTrue(any(event == "scan_complete" for event, _ in logs))
                 queued = next(fields for event, fields in logs if event == "message_queued")
                 complete = next(fields for event, fields in logs if event == "scan_complete")
+                self.assertEqual("mx-one", queued["client_id"])
                 self.assertEqual(queued["smtp_metadata_fields_present"],
                                  ["queue_id", "sender", "client_ip", "helo", "received_port"])
                 self.assertEqual(queued["client_ticket_status"], "ticket_present")
@@ -577,11 +615,13 @@ class ContentScanTests(unittest.TestCase):
             os.unlink(config_path)
             os.rmdir(temp_dir)
 
-    def test_gateway_rejects_bad_token_before_reading_body(self):
+    def test_gateway_rejects_source_ip_not_in_the_allowlist_before_reading_body(self):
         temp_dir = tempfile.mkdtemp(prefix="had-content-scan-")
         config_path = os.path.join(temp_dir, "clients.json")
         with open(config_path, "w") as stream:
-            json.dump({"clients": {}}, stream)
+            json.dump({"clients": {"mx-one": {
+                "allowed_cidrs": ["198.51.100.25/32"], "enabled": True,
+            }}}, stream)
         with mock.patch.object(scan_gateway, "emit_log"):
             server = scan_gateway.BoundedThreadingHTTPServer(
                 ("127.0.0.1", 0), scan_gateway.ScanHandler, config_path,
@@ -592,8 +632,7 @@ class ContentScanTests(unittest.TestCase):
             try:
                 connection = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=3)
                 connection.request("POST", "/v1/scan", body=b"", headers={
-                    "X-SFOX-Client": "unknown", "X-Real-IP": "198.51.100.25",
-                    "Authorization": "Bearer " + ("x" * 48), "Content-Length": "0",
+                    "X-Real-IP": "198.51.100.26", "Content-Length": "0",
                 })
                 response = connection.getresponse()
                 self.assertEqual(response.status, 403)
@@ -607,6 +646,41 @@ class ContentScanTests(unittest.TestCase):
             os.rmdir(temp_dir)
         except OSError:
             pass
+
+    def test_gateway_preflight_empty_chunked_post_confirms_allowlisted_source_without_queueing(self):
+        temp_dir = tempfile.mkdtemp(prefix="had-content-scan-preflight-")
+        config_path = os.path.join(temp_dir, "clients.json")
+        with open(config_path, "w") as stream:
+            json.dump({"clients": {"mx-one": {
+                "allowed_cidrs": ["198.51.100.25/32"], "enabled": True,
+            }}}, stream)
+        server = scan_gateway.BoundedThreadingHTTPServer(
+            ("127.0.0.1", 0), scan_gateway.ScanHandler, config_path,
+            1024, 1, 1, 1)
+        with mock.patch.object(scan_gateway, "emit_log"):
+            thread = threading.Thread(target=server.serve_forever,
+                                     kwargs={"poll_interval": 0.01})
+            thread.daemon = True
+            thread.start()
+            try:
+                connection = http.client.HTTPConnection(
+                    "127.0.0.1", server.server_address[1], timeout=3)
+                connection.putrequest("POST", "/v1/scan")
+                connection.putheader("Transfer-Encoding", "chunked")
+                connection.putheader("X-Real-IP", "198.51.100.25")
+                connection.endheaders()
+                connection.send(b"0\r\n\r\n")
+                response = connection.getresponse()
+                self.assertEqual(400, response.status)
+                self.assertEqual({"error": "invalid_body"}, json.loads(response.read()))
+                self.assertEqual(0, server.work_queue.qsize())
+                connection.close()
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(2)
+        os.unlink(config_path)
+        os.rmdir(temp_dir)
 
     def test_rspamd_transport_appears_in_native_history_and_returns_only_safe_summary(self):
         observed = {}
@@ -724,7 +798,7 @@ class ContentScanTests(unittest.TestCase):
         message = b"Subject: private\r\n\r\nbody"
         with mock.patch.object(scan_client, "_connect", return_value=connection), \
                 mock.patch.object(scan_client, "log_event") as log_event:
-            result = scan_client.submit(io.BytesIO(message), endpoint, "mx-one", "t" * 48,
+            result = scan_client.submit(io.BytesIO(message), endpoint,
                                         "1xTEST", 1024, 2, queue_id="1xTEST",
                                         sender="sender@example.invalid",
                                         recipients=["recipient@example.invalid",
@@ -744,6 +818,8 @@ class ContentScanTests(unittest.TestCase):
         self.assertIn(("X-SFOX-Exim-Recipient-Count", "1"), connection.headers)
         self.assertIn(("X-SFOX-Client-Ticket-Status", "ticket_missing"),
                       connection.headers)
+        self.assertNotIn("X-SFOX-Client", [name for name, _ in connection.headers])
+        self.assertNotIn("Authorization", [name for name, _ in connection.headers])
         self.assertEqual(log_event.call_args[0][0], "upload_queued")
         self.assertEqual(log_event.call_args[1]["client_ticket_status"], "ticket_missing")
         self.assertEqual(log_event.call_args[1]["smtp_recipient_count"], 2)
@@ -758,7 +834,7 @@ class ContentScanTests(unittest.TestCase):
         endpoint = scan_client.urlsplit("https://matrix.example.invalid/internal/sfox/scan")
         with mock.patch.object(scan_client, "_connect", side_effect=OSError("offline")), \
                 mock.patch.object(scan_client, "log_event") as log_event:
-            result = scan_client.submit(io.BytesIO(b"message"), endpoint, "mx-one", "t" * 48,
+            result = scan_client.submit(io.BytesIO(b"message"), endpoint,
                                         "1xTEST", 1024, 2)
         self.assertFalse(result)
         self.assertEqual(log_event.call_args[0][0], "upload_skipped")
@@ -782,51 +858,55 @@ class ContentScanTests(unittest.TestCase):
         stream = io.BytesIO(message)
         with mock.patch.object(scan_client, "_connect", return_value=connection), \
                 mock.patch.object(scan_client, "log_event") as log_event:
-            result = scan_client.submit(stream, endpoint, "mx-one", "t" * 48,
-                                        "1xTEST", 1024, 2)
+            result = scan_client.submit(stream, endpoint, "1xTEST", 1024, 2)
         self.assertFalse(result)
         self.assertTrue(connection.closed)
         self.assertEqual(stream.read(), b"")
         self.assertEqual(log_event.call_args[1]["reason"], "message_too_large")
 
-    def test_client_registry_requires_core_allowlist_and_rotates_secret(self):
+    def test_client_registry_requires_core_allowlist_and_defaults_to_conservative_autolearn(self):
         temp_dir = tempfile.mkdtemp(prefix="had-content-scan-admin-")
         allowlist = os.path.join(temp_dir, "allowlist.txt")
         config = os.path.join(temp_dir, "clients.json")
         with open(allowlist, "w") as stream:
             stream.write("198.51.100.0/24 # primary cPanel\n")
-        token = manage_clients.add_client(config, allowlist, "mx-one", ["198.51.100.25/32"])
+        profile = manage_clients.add_client(config, allowlist, "mx-one", ["198.51.100.25/32"])
         with open(config, "r") as stream:
             written = json.load(stream)
-        self.assertNotEqual(written["clients"]["mx-one"]["token_sha256"], token)
-        self.assertEqual(len(written["clients"]["mx-one"]["token_sha256"]), 64)
-        self.assertFalse(written["clients"]["mx-one"]["autolearn_enabled"])
+        self.assertEqual(profile, "mx-one")
+        self.assertNotIn("token_sha256", written["clients"]["mx-one"])
+        self.assertTrue(written["clients"]["mx-one"]["autolearn_enabled"])
         self.assertFalse(written["clients"]["mx-one"]["spfbl_feedback_enabled"])
-        manage_clients.add_client(config, allowlist, "mx-one-auto",
-                                  ["198.51.100.25/32"], autolearn_enabled=True)
+        auto_profile = manage_clients.add_client(
+            config, allowlist, None, ["198.51.100.26/32"])
+        self.assertEqual("ip-198-51-100-26-32", auto_profile)
         with open(config, "r") as stream:
-            self.assertTrue(json.load(stream)["clients"]["mx-one-auto"]["autolearn_enabled"])
-        manage_clients.set_spfbl_feedback(config, "mx-one-auto", True)
+            self.assertTrue(json.load(stream)["clients"][auto_profile]["autolearn_enabled"])
+        manage_clients.set_spfbl_feedback(config, auto_profile, True)
         with open(config, "r") as stream:
-            self.assertTrue(json.load(stream)["clients"]["mx-one-auto"]["spfbl_feedback_enabled"])
+            self.assertTrue(json.load(stream)["clients"][auto_profile]["spfbl_feedback_enabled"])
+        no_learning_profile = manage_clients.add_client(
+            config, allowlist, None, ["198.51.100.27/32"], autolearn_enabled=False)
         with self.assertRaises(ValueError):
-            manage_clients.set_spfbl_feedback(config, "mx-one", True)
-        manage_clients.set_spfbl_feedback(config, "mx-one-auto", False)
+            manage_clients.set_spfbl_feedback(config, no_learning_profile, True)
+        manage_clients.set_spfbl_feedback(config, auto_profile, False)
         with self.assertRaises(ValueError):
             manage_clients.add_client(config, allowlist, "mx-two", ["203.0.113.25/32"])
+        with self.assertRaisesRegex(ValueError, "overlaps profile"):
+            manage_clients.add_client(config, allowlist, "overlap", ["198.51.100.24/29"])
         manage_clients.disable_client(config, "mx-one")
         with open(config, "r") as stream:
             self.assertFalse(json.load(stream)["clients"]["mx-one"]["enabled"])
         with self.assertRaises(ValueError):
             manage_clients.set_autolearn(config, "mx-one", True)
-        manage_clients.set_autolearn(config, "mx-one-auto", False)
+        manage_clients.set_autolearn(config, auto_profile, False)
         with open(config, "r") as stream:
             saved = json.load(stream)["clients"]
-        self.assertFalse(saved["mx-one-auto"]["autolearn_enabled"])
-        self.assertEqual(len(saved["mx-one-auto"]["token_sha256"]), 64)
-        manage_clients.set_autolearn(config, "mx-one-auto", True)
+        self.assertFalse(saved[auto_profile]["autolearn_enabled"])
+        self.assertNotIn("token_sha256", saved[auto_profile])
+        manage_clients.set_autolearn(config, auto_profile, True)
         with open(config, "r") as stream:
-            self.assertTrue(json.load(stream)["clients"]["mx-one-auto"]["autolearn_enabled"])
+            self.assertTrue(json.load(stream)["clients"][auto_profile]["autolearn_enabled"])
         try:
             os.unlink(config)
             os.unlink(allowlist)
