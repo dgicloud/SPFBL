@@ -3,12 +3,12 @@ set -Eeuo pipefail
 umask 077
 
 # Bootstrap pinned to an immutable package checksum.
-VERSION='0.1.5-pilot'
+VERSION='0.1.6-pilot'
 PACKAGE="had-content-scan-postfix-${VERSION}"
 ARCHIVE="${PACKAGE}.tar.gz"
 REPOSITORY='dgicloud/SPFBL'
 REF='hadcloud-cpanel-installer'
-SHA256='c9fcda5f6d7bca5b895f7b80146cb3a44538ed24053104f85a60a225c40b883a'
+SHA256='881560f88e2a6a622cd2b6412597494b659041013259ffccc5fb58d24bfed29f'
 BASE_URL="https://raw.githubusercontent.com/${REPOSITORY}/${REF}"
 ARCHIVE_URL="${BASE_URL}/packaging/postfix/releases/${ARCHIVE}"
 INSTALL_BASE='/opt/spamfox-postfix/releases'

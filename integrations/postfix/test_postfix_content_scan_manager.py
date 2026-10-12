@@ -1,5 +1,7 @@
 import unittest
+from unittest import mock
 
+import postfix_content_scan_manager as manager
 from postfix_content_scan_manager import (
     CONFIG,
     SERVICE_BLOCK,
@@ -35,6 +37,24 @@ class PostfixContentScanManagerTests(unittest.TestCase):
         self.assertIn(b"--auth-user=${sasl_username}", SERVICE_BLOCK)
         self.assertIn(b"null_sender=\n", SERVICE_BLOCK)
         self.assertEqual(UPLOAD_LOCK_SECONDARY, UPLOAD_LOCK + ".1")
+
+    def test_repeated_install_validates_an_existing_managed_install(self):
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as root:
+            paths = Paths(root)
+            os.makedirs(paths.state)
+            with mock.patch.object(manager, "_check_root"), \
+                    mock.patch.object(manager, "_version"), \
+                    mock.patch.object(manager, "_assert_no_global_filter"), \
+                    mock.patch.object(manager, "gateway_preflight") as preflight, \
+                    mock.patch.object(manager, "healthcheck", return_value="healthy") as check:
+                result = manager.install(paths, runner=lambda _command: "", reload_postfix=True)
+
+        self.assertEqual("already installed; Postfix after-queue MONITOR remains active", result)
+        preflight.assert_called_once()
+        check.assert_called_once_with(paths, runner=mock.ANY, preflight=False)
 
     def test_installer_preserves_an_existing_secondary_upload_lock(self):
         import os

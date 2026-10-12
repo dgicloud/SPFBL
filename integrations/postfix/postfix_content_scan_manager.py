@@ -451,6 +451,14 @@ def install(paths=None, runner=run_command,
         _check_root(paths)
     _version(paths, runner)
     _assert_no_global_filter(paths, runner)
+    if os.path.lexists(paths.state):
+        # A completed managed installation is safe to validate repeatedly.
+        # Do not overwrite its files or recreate the snapshot; healthcheck
+        # verifies the exact manifest before reporting the active state.
+        if preflight:
+            gateway_preflight()
+        healthcheck(paths, runner=runner, preflight=False)
+        return "already installed; Postfix after-queue MONITOR remains active"
     _assert_clean_targets(paths)
     candidate_config = config_bytes()
     if preflight:
