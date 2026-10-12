@@ -22,7 +22,7 @@ LEGACY_BEGIN = b"# BEGIN HAD-CONTENT-SCAN TRANSPORT"
 LEGACY_END = b"# END HAD-CONTENT-SCAN TRANSPORT"
 LEGACY_MAIN_BEGIN = b"# BEGIN HAD-CONTENT-SCAN SETTINGS"
 LEGACY_MAIN_END = b"# END HAD-CONTENT-SCAN SETTINGS"
-LEGACY_SERVICE_BLOCK = (
+HAD_LEGACY_SERVICE_BLOCK = (
     LEGACY_BEGIN + b"\n"
     b"had-content-scan unix - n n - 2 pipe\n"
     b"  flags=q user=had-content-scan null_sender=\n"
@@ -31,6 +31,11 @@ LEGACY_SERVICE_BLOCK = (
 )
 LEGACY_MAIN_BLOCK = (LEGACY_MAIN_BEGIN + b"\n"
     b"had-content-scan_destination_recipient_limit = 1\n" + LEGACY_MAIN_END + b"\n")
+HAD_LEGACY_PIPE_SERVICE_BLOCK = HAD_LEGACY_SERVICE_BLOCK.replace(
+    b"  flags=q user=had-content-scan null_sender=\n",
+    b"  -o pipe_destination_recipient_limit=1\n"
+    b"  flags=q user=had-content-scan null_sender=\n",
+)
 
 SERVICE_USER = "sfox-content-scan"
 SERVICE = "sfox-content-scan"
@@ -67,7 +72,7 @@ SERVICE_BLOCK = (
     + END + b"\n"
 )
 SMTP_OVERRIDE = b"  -o content_filter=sfox-content-scan:dummy\n"
-LEGACY_SERVICE_BLOCK = SERVICE_BLOCK.replace(
+SFOX_LEGACY_PIPE_SERVICE_BLOCK = SERVICE_BLOCK.replace(
     b"  flags=q user=sfox-content-scan null_sender=\n",
     b"  -o pipe_destination_recipient_limit=1\n"
     b"  flags=q user=sfox-content-scan null_sender=\n",
@@ -275,7 +280,7 @@ def transform_master_cf(data):
         end_marker = data.find(LEGACY_END)
         end = data.find(b"\n", end_marker)
         end = len(data) if end < 0 else end + 1
-        if data[start:end] != LEGACY_SERVICE_BLOCK:
+        if data[start:end] not in (HAD_LEGACY_SERVICE_BLOCK, HAD_LEGACY_PIPE_SERVICE_BLOCK):
             raise ContentScanManagerError("Transporte HAD legado diverge do formato migrável")
         data = data[:start] + SERVICE_BLOCK + data[end:]
         data = data.replace(b"content_filter=had-content-scan:dummy", b"content_filter=sfox-content-scan:dummy")
@@ -284,7 +289,7 @@ def transform_master_cf(data):
     if span:
         start, end = span
         current = data[start:end]
-        if current == LEGACY_SERVICE_BLOCK:
+        if current == SFOX_LEGACY_PIPE_SERVICE_BLOCK:
             return data[:start] + SERVICE_BLOCK + data[end:], True
         if current != SERVICE_BLOCK:
             raise ContentScanManagerError("Transporte HAD existente diverge do pacote")

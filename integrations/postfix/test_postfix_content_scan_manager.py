@@ -7,7 +7,8 @@ from postfix_content_scan_manager import (
     SERVICE_BLOCK,
     SMTP_OVERRIDE,
     MAIN_BLOCK,
-    LEGACY_SERVICE_BLOCK,
+    HAD_LEGACY_SERVICE_BLOCK,
+    HAD_LEGACY_PIPE_SERVICE_BLOCK,
     transform_main_cf,
     UPLOAD_LOCK,
     UPLOAD_LOCK_SECONDARY,
@@ -96,7 +97,15 @@ class PostfixContentScanManagerTests(unittest.TestCase):
         self.assertNotIn(SMTP_OVERRIDE, submission_service)
 
     def test_upgrades_only_the_known_legacy_transport_block(self):
-        legacy = BASE_MASTER.replace(SMTP_OVERRIDE, SMTP_OVERRIDE) + b"\n" + LEGACY_SERVICE_BLOCK
+        legacy = BASE_MASTER.replace(SMTP_OVERRIDE, SMTP_OVERRIDE) + b"\n" + HAD_LEGACY_SERVICE_BLOCK
+        updated, changed = transform_master_cf(legacy)
+
+        self.assertTrue(changed)
+        self.assertIn(SERVICE_BLOCK, updated)
+        self.assertNotIn(b"pipe_destination_recipient_limit", updated)
+
+    def test_upgrades_the_earliest_legacy_transport_with_pipe_override(self):
+        legacy = BASE_MASTER + b"\n" + HAD_LEGACY_PIPE_SERVICE_BLOCK
         updated, changed = transform_master_cf(legacy)
 
         self.assertTrue(changed)
