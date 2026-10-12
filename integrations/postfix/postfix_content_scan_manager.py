@@ -518,10 +518,12 @@ def _ensure_existing_main_settings(paths, manifest, runner):
         _postfix_check(paths, runner)
     except Exception:
         _atomic_write(paths.main, original, metadata)
+        manifest["files"].pop("main", None)
         try:
             os.unlink(os.path.join(paths.state, "main.original"))
         except OSError:
             pass
+        _write_manifest(paths, manifest)
         raise
     return True
 
