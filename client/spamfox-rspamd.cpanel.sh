@@ -4,12 +4,12 @@ umask 077
 
 # Bootstrap pinned to an immutable package checksum. Update the version and
 # digest only after building and reviewing a new cPanel release bundle.
-VERSION='0.1.12-pilot'
-PACKAGE="spamfox-rspamd-cpanel-${VERSION}"
+VERSION='0.1.16-pilot'
+PACKAGE="had-content-scan-cpanel-${VERSION}"
 ARCHIVE="${PACKAGE}.tar.gz"
 REPOSITORY='dgicloud/SPFBL'
 REF='hadcloud-cpanel-installer'
-SHA256='943de7bc7e9101c95c1bf6c33c4eabc4a13c9879ab7db2c57f20c24595eca203'
+SHA256='52ff05c1e6f44e5cd648e25ff14c72a5e5eab6497616bb8cc71cef2299fa2ffe'
 BASE_URL="https://raw.githubusercontent.com/${REPOSITORY}/${REF}"
 ARCHIVE_URL="${BASE_URL}/packaging/cpanel/releases/${ARCHIVE}"
 INSTALL_BASE='/opt/spamfox-cpanel/releases'
@@ -21,10 +21,11 @@ Instalador do coletor de conteúdo Rspamd para cPanel/Exim.
 Este add-on mantém o cliente nativo SPFBL e instala somente a cópia after-queue.
 
 Uso:
-  bash spamfox-rspamd.cpanel.sh --client-id ID --test-recipient CAIXA --check
-  bash spamfox-rspamd.cpanel.sh --client-id ID --test-recipient CAIXA --token-file ARQUIVO
+  bash spamfox-rspamd.cpanel.sh --test-recipient CAIXA --check
+  bash spamfox-rspamd.cpanel.sh --test-recipient CAIXA
 
-O token individual é emitido na VM central e deve estar em arquivo root-only.
+O perfil do servidor é identificado pelo IP autorizado na VM central;
+nenhum ID de cPanel ou token precisa ser configurado aqui.
 Configure antes o transporte had_sfox_content_pipe no WHM; consulte o guia do pacote.
 EOF
 }

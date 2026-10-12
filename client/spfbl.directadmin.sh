@@ -24,7 +24,37 @@
 # Version: 1.0
 
 # SpamFox branding is limited to client-facing ACL/log text and installer output; SPFBL protocol stays upstream.
+# Keep the core endpoint as a hostname so a future HAD Cloud IP change does not
+# require reinstalling every DirectAdmin server.
+HAD_SPFBL_SERVER="matrix.hadcloud.srv.br"
 HAD_ACL_RAW_BASE="https://raw.githubusercontent.com/dgicloud/SPFBL/hadcloud-cpanel-installer/client"
+
+function configure_query_server_client() {
+    local client_script="$1"
+    local setting_count banner_count
+
+    [ -f "$client_script" ] || { echo "SpamFox client was not downloaded: $client_script"; return 1; }
+    setting_count=$(grep -Ec '^IP_SERVIDOR="[^"]+"$' "$client_script" || true)
+    [ "$setting_count" -eq 1 ] || { echo "Expected exactly one IP_SERVIDOR setting in $client_script; refusing an unverified patch."; return 1; }
+    banner_count=$(grep -Fc 'echo "SPFBL v$version - by Leandro Rodrigues - leandro@spfbl.net"' "$client_script" || true)
+    [ "$banner_count" -eq 1 ] || { echo "Expected exactly one upstream SPFBL CLI banner in $client_script; refusing an unverified patch."; return 1; }
+
+    sed -i -E "s|^IP_SERVIDOR=\"[^\"]+\"$|IP_SERVIDOR=\"$HAD_SPFBL_SERVER\"|" "$client_script"
+    sed -i 's|echo "SPFBL v\$version - by Leandro Rodrigues - leandro@spfbl.net"|echo "SpamFox (SFOX) v\$version - Powered by SPFBL.net"|' "$client_script"
+    grep -Fqx "IP_SERVIDOR=\"$HAD_SPFBL_SERVER\"" "$client_script" && grep -Fq 'echo "SpamFox (SFOX) v$version - Powered by SPFBL.net"' "$client_script"
+}
+
+function configure_query_server_firewall() {
+    local firewall_script="$1"
+    local upstream_ip="54.233.253.229"
+    local matches
+
+    [ -f "$firewall_script" ] || { echo "SpamFox firewall updater was not downloaded: $firewall_script"; return 1; }
+    matches=$(grep -oF -- "$upstream_ip" "$firewall_script" | wc -l)
+    [ "$matches" -eq 1 ] || { echo "Expected one upstream query IP in $firewall_script; refusing an unverified patch."; return 1; }
+    sed -i "s/$upstream_ip/$HAD_SPFBL_SERVER/g" "$firewall_script"
+    grep -Fq "$HAD_SPFBL_SERVER" "$firewall_script"
+}
 
 function install() {
 
@@ -57,6 +87,7 @@ function install() {
     
     # Install SPFBL client script.
     wget https://raw.githubusercontent.com/leonamp/SPFBL/master/client/spfbl.sh -O /usr/local/bin/spfbl
+    configure_query_server_client /usr/local/bin/spfbl || exit 1
     chmod +x /usr/local/bin/spfbl
     /usr/local/bin/spfbl version
     if [ $? -eq 0 ]; then
@@ -146,7 +177,7 @@ function install() {
         wget https://raw.githubusercontent.com/leonamp/SPFBL/master/client/directadmin.acl_check_dkim.conf -O /etc/exim.easy_spam_fighter/check_dkim.conf
         wget "$HAD_ACL_RAW_BASE/directadmin.acl_check_message.pre.conf" -O /etc/exim.acl_check_message.pre.conf
         echo "av_scanner = clamd:/run/clamd.scan/clamd.sock" > /etc/exim.variables.conf.custom
-	echo "spamd_address = 54.233.253.229 9877" >> /etc/exim.variables.conf.custom
+	echo "spamd_address = $HAD_SPFBL_SERVER 9877" >> /etc/exim.variables.conf.custom
 	echo "RBL_DNS_LIST==" > /etc/exim.strings.conf.custom
         
         # Restart DirectAdmin service.
@@ -165,11 +196,8 @@ function install() {
     else
         myIP=$(curl -s http://checkip.amazonaws.com/)
         myHOST=$(hostname)
-        echo "Your DirectAdmin doesn't have permission to access matrix.spfbl.net server yet."
-        echo "Please contact us to get your permission for the host $myHOST [$myIP]."
-        echo "https://spfbl.net/en/contact"
-        echo "If this host has already it, open the port 9877 TCP OUT in your firewall"
-        echo "and add the IP 54.233.253.229 in its whitelist."
+        echo "Unable to query the SpamFox core at $HAD_SPFBL_SERVER:9877 from $myHOST [$myIP]."
+        echo "Allow outbound TCP 9877 and add this DirectAdmin public IP to the core allowlist."
         exit 1;
     fi
 }
@@ -178,6 +206,8 @@ function update() {
     if [ -f "/etc/exim.acl_check_recipient.pre.conf" ]; then
         # Replace SPFBL client script.
         wget https://raw.githubusercontent.com/leonamp/SPFBL/master/client/spfbl.sh -O /usr/local/bin/spfbl
+        configure_query_server_client /usr/local/bin/spfbl || exit 1
+        chmod +x /usr/local/bin/spfbl
         
         # Replace SPFBL configuration files
         mkdir -p /etc/exim.easy_spam_fighter/
@@ -185,7 +215,7 @@ function update() {
         wget https://raw.githubusercontent.com/leonamp/SPFBL/master/client/directadmin.acl_check_dkim.conf -O /etc/exim.easy_spam_fighter/check_dkim.conf
         wget "$HAD_ACL_RAW_BASE/directadmin.acl_check_message.pre.conf" -O /etc/exim.acl_check_message.pre.conf
         echo "av_scanner = clamd:/run/clamd.scan/clamd.sock" > /etc/exim.variables.conf.custom
-	echo "spamd_address = 54.233.253.229 9877" >> /etc/exim.variables.conf.custom
+	echo "spamd_address = $HAD_SPFBL_SERVER 9877" >> /etc/exim.variables.conf.custom
 	echo "RBL_DNS_LIST==" > /etc/exim.strings.conf.custom
         
         # Restart cPanel service.
@@ -255,7 +285,8 @@ function uninstall() {
 function firewall() {
     rm -f /etc/cron.hourly/spfbl-firewall-update
     
-    curl -s https://raw.githubusercontent.com/leonamp/SPFBL/master/client/firewall.cpanel.sh > /usr/local/bin/spfbl-firewall-update
+    curl -fsSL https://raw.githubusercontent.com/leonamp/SPFBL/master/client/firewall.cpanel.sh -o /usr/local/bin/spfbl-firewall-update
+    configure_query_server_firewall /usr/local/bin/spfbl-firewall-update || exit 1
     chmod +x /usr/local/bin/spfbl-firewall-update
     /usr/local/bin/spfbl-firewall-update
     

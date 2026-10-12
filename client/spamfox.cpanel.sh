@@ -195,7 +195,7 @@ function install() {
         
         # Install SPFBL configuration files.
         wget "$HAD_ACL_RAW_BASE/spfbl_end_recipient" -O /usr/local/cpanel/etc/exim/acls/ACL_RECIPIENT_BLOCK/spfbl_end_recipient
-        wget https://raw.githubusercontent.com/leonamp/SPFBL/master/client/spfbl_begin_smtp_dkim -O /usr/local/cpanel/etc/exim/acls/ACL_SMTP_DKIM_BLOCK/spfbl_begin_smtp_dkim
+        wget "$HAD_ACL_RAW_BASE/spfbl_begin_smtp_dkim" -O /usr/local/cpanel/etc/exim/acls/ACL_SMTP_DKIM_BLOCK/spfbl_begin_smtp_dkim
         wget "$HAD_ACL_RAW_BASE/spfbl_begin_check_message_pre" -O /usr/local/cpanel/etc/exim/acls/ACL_CHECK_MESSAGE_PRE_BLOCK/spfbl_begin_check_message_pre
         
         # Config Exim Configuration Manager interface.
@@ -269,7 +269,7 @@ function update() {
         
         # Replace SPFBL configuration files
         wget "$HAD_ACL_RAW_BASE/spfbl_end_recipient" -O /usr/local/cpanel/etc/exim/acls/ACL_RECIPIENT_BLOCK/spfbl_end_recipient
-        wget https://raw.githubusercontent.com/leonamp/SPFBL/master/client/spfbl_begin_smtp_dkim -O /usr/local/cpanel/etc/exim/acls/ACL_SMTP_DKIM_BLOCK/spfbl_begin_smtp_dkim
+        wget "$HAD_ACL_RAW_BASE/spfbl_begin_smtp_dkim" -O /usr/local/cpanel/etc/exim/acls/ACL_SMTP_DKIM_BLOCK/spfbl_begin_smtp_dkim
         wget "$HAD_ACL_RAW_BASE/spfbl_begin_check_message_pre" -O /usr/local/cpanel/etc/exim/acls/ACL_CHECK_MESSAGE_PRE_BLOCK/spfbl_begin_check_message_pre
         
         # Config Exim Configuration Manager interface.
