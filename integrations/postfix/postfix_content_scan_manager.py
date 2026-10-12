@@ -18,45 +18,59 @@ import sys
 import tempfile
 import time
 
-SERVICE_USER = "had-content-scan"
-SERVICE = "had-content-scan"
-CONTENT_FILTER = "had-content-scan:dummy"
-BEGIN = b"# BEGIN HAD-CONTENT-SCAN TRANSPORT"
-END = b"# END HAD-CONTENT-SCAN TRANSPORT"
-MAIN_BEGIN = b"# BEGIN HAD-CONTENT-SCAN SETTINGS"
-MAIN_END = b"# END HAD-CONTENT-SCAN SETTINGS"
+LEGACY_BEGIN = b"# BEGIN HAD-CONTENT-SCAN TRANSPORT"
+LEGACY_END = b"# END HAD-CONTENT-SCAN TRANSPORT"
+LEGACY_MAIN_BEGIN = b"# BEGIN HAD-CONTENT-SCAN SETTINGS"
+LEGACY_MAIN_END = b"# END HAD-CONTENT-SCAN SETTINGS"
+LEGACY_SERVICE_BLOCK = (
+    LEGACY_BEGIN + b"\n"
+    b"had-content-scan unix - n n - 2 pipe\n"
+    b"  flags=q user=had-content-scan null_sender=\n"
+    b"  argv=/usr/bin/python3 /usr/local/libexec/had-antispam/postfix_content_filter.py --sender=${sender} --recipient=${recipient} --queue-id=${queue_id} --client-ip=${client_address} --helo=${client_helo} --auth-user=${sasl_username} --config=/etc/had-content-scan/postfix/client.json --lock=/var/lib/had-content-scan/postfix/upload.lock\n"
+    + LEGACY_END + b"\n"
+)
+LEGACY_MAIN_BLOCK = (LEGACY_MAIN_BEGIN + b"\n"
+    b"had-content-scan_destination_recipient_limit = 1\n" + LEGACY_MAIN_END + b"\n")
+
+SERVICE_USER = "sfox-content-scan"
+SERVICE = "sfox-content-scan"
+CONTENT_FILTER = "sfox-content-scan:dummy"
+BEGIN = b"# BEGIN SFOX-CONTENT-SCAN TRANSPORT"
+END = b"# END SFOX-CONTENT-SCAN TRANSPORT"
+MAIN_BEGIN = b"# BEGIN SFOX-CONTENT-SCAN SETTINGS"
+MAIN_END = b"# END SFOX-CONTENT-SCAN SETTINGS"
 MAIN_BLOCK = (
     MAIN_BEGIN + b"\n"
-    b"had-content-scan_destination_recipient_limit = 1\n"
+    b"sfox-content-scan_destination_recipient_limit = 1\n"
     + MAIN_END + b"\n"
 )
-STATE = "/var/lib/had-content-scan/postfix-install/current"
-ARCHIVE = "/var/lib/had-content-scan/postfix-install/archive"
-LOCK = "/run/lock/had-content-scan-postfix-installer.lock"
-CONFIG_BASE = "/etc/had-content-scan"
-CONFIG_DIR = "/etc/had-content-scan/postfix"
-CONFIG = "/etc/had-content-scan/postfix/client.json"
-UPLOAD_BASE = "/var/lib/had-content-scan"
-UPLOAD_DIR = "/var/lib/had-content-scan/postfix"
-UPLOAD_LOCK = "/var/lib/had-content-scan/postfix/upload.lock"
+STATE = "/var/lib/sfox-content-scan/postfix-install/current"
+ARCHIVE = "/var/lib/sfox-content-scan/postfix-install/archive"
+LOCK = "/run/lock/sfox-content-scan-postfix-installer.lock"
+CONFIG_BASE = "/etc/sfox-content-scan"
+CONFIG_DIR = "/etc/sfox-content-scan/postfix"
+CONFIG = "/etc/sfox-content-scan/postfix/client.json"
+UPLOAD_BASE = "/var/lib/sfox-content-scan"
+UPLOAD_DIR = "/var/lib/sfox-content-scan/postfix"
+UPLOAD_LOCK = "/var/lib/sfox-content-scan/postfix/upload.lock"
 UPLOAD_LOCK_SECONDARY = UPLOAD_LOCK + ".1"
-LIB_DIR = "/usr/local/libexec/had-antispam"
-FILTER = "/usr/local/libexec/had-antispam/postfix_content_filter.py"
-SCAN_CLIENT = "/usr/local/libexec/had-antispam/scan_client.py"
+LIB_DIR = "/usr/local/libexec/sfox-content-scan"
+FILTER = "/usr/local/libexec/sfox-content-scan/postfix_content_filter.py"
+SCAN_CLIENT = "/usr/local/libexec/sfox-content-scan/scan_client.py"
 ENDPOINT = "https://matrix.hadcloud.srv.br/internal/sfox/scan"
 SERVICE_BLOCK = (
     BEGIN + b"\n"
-    b"had-content-scan unix - n n - 2 pipe\n"
-    b"  flags=q user=had-content-scan null_sender=\n"
-    b"  argv=/usr/bin/python3 /usr/local/libexec/had-antispam/postfix_content_filter.py --sender=${sender} --recipient=${recipient} --queue-id=${queue_id} --client-ip=${client_address} --helo=${client_helo} --auth-user=${sasl_username} --config="
+    b"sfox-content-scan unix - n n - 2 pipe\n"
+    b"  flags=q user=sfox-content-scan null_sender=\n"
+    b"  argv=/usr/bin/python3 /usr/local/libexec/sfox-content-scan/postfix_content_filter.py --sender=${sender} --recipient=${recipient} --queue-id=${queue_id} --client-ip=${client_address} --helo=${client_helo} --auth-user=${sasl_username} --config="
     + CONFIG.encode("ascii") + b" --lock=" + UPLOAD_LOCK.encode("ascii") + b"\n"
     + END + b"\n"
 )
-SMTP_OVERRIDE = b"  -o content_filter=had-content-scan:dummy\n"
+SMTP_OVERRIDE = b"  -o content_filter=sfox-content-scan:dummy\n"
 LEGACY_SERVICE_BLOCK = SERVICE_BLOCK.replace(
-    b"  flags=q user=had-content-scan null_sender=\n",
+    b"  flags=q user=sfox-content-scan null_sender=\n",
     b"  -o pipe_destination_recipient_limit=1\n"
-    b"  flags=q user=had-content-scan null_sender=\n",
+    b"  flags=q user=sfox-content-scan null_sender=\n",
 )
 
 
@@ -121,7 +135,7 @@ def _atomic_write(path, data, metadata=None):
     parent = os.path.dirname(path)
     if not os.path.isdir(parent):
         os.makedirs(parent)
-    fd, temporary = tempfile.mkstemp(prefix=".had-content-scan-", dir=parent)
+    fd, temporary = tempfile.mkstemp(prefix=".sfox-content-scan-", dir=parent)
     try:
         with os.fdopen(fd, "wb") as stream:
             stream.write(data)
@@ -230,13 +244,21 @@ def _managed_main_span(data):
 
 def transform_main_cf(data):
     """Add the documented one-recipient limit for the managed pipe transport."""
+    if LEGACY_MAIN_BEGIN in data or LEGACY_MAIN_END in data:
+        start = data.rfind(b"\n", 0, data.find(LEGACY_MAIN_BEGIN)) + 1
+        end_marker = data.find(LEGACY_MAIN_END)
+        end = data.find(b"\n", end_marker)
+        end = len(data) if end < 0 else end + 1
+        if data[start:end] != LEGACY_MAIN_BLOCK:
+            raise ContentScanManagerError("Configuração HAD legada no main.cf diverge do formato migrável")
+        return data[:start] + MAIN_BLOCK + data[end:], True
     span = _managed_main_span(data)
     if span:
         start, end = span
         if data[start:end] != MAIN_BLOCK:
             raise ContentScanManagerError("Configuração HAD existente no main.cf diverge do pacote")
         return data, False
-    if b"had-content-scan_destination_recipient_limit" in data:
+    if b"sfox-content-scan_destination_recipient_limit" in data:
         raise ContentScanManagerError("Limite do transporte HAD já existe fora dos marcadores gerenciados")
     updated = data
     if updated and not updated.endswith(b"\n"):
@@ -248,6 +270,16 @@ def transform_main_cf(data):
 
 def transform_master_cf(data):
     """Add only an inbound SMTP service override and one managed pipe transport."""
+    if LEGACY_BEGIN in data or LEGACY_END in data:
+        start = data.rfind(b"\n", 0, data.find(LEGACY_BEGIN)) + 1
+        end_marker = data.find(LEGACY_END)
+        end = data.find(b"\n", end_marker)
+        end = len(data) if end < 0 else end + 1
+        if data[start:end] != LEGACY_SERVICE_BLOCK:
+            raise ContentScanManagerError("Transporte HAD legado diverge do formato migrável")
+        data = data[:start] + SERVICE_BLOCK + data[end:]
+        data = data.replace(b"content_filter=had-content-scan:dummy", b"content_filter=sfox-content-scan:dummy")
+        return data, True
     span = _managed_transport_span(data)
     if span:
         start, end = span
@@ -270,8 +302,8 @@ def transform_master_cf(data):
     smtp_lines = lines[smtp_start:smtp_end]
     if any(b"content_filter" in line for line in smtp_lines):
         raise ContentScanManagerError("O serviço smtp já possui um override content_filter; preservei a configuração")
-    if b"had-content-scan unix" in data:
-        raise ContentScanManagerError("Serviço had-content-scan já existe fora dos marcadores gerenciados")
+    if b"sfox-content-scan unix" in data or b"had-content-scan unix" in data:
+        raise ContentScanManagerError("Serviço SFOX/HAD já existe fora dos marcadores gerenciados")
 
     # Put the setting first in the service block, before any existing per-service
     # overrides. No existing content_filter is replaced or shadowed.
@@ -416,13 +448,13 @@ def _service_identity(runner=run_command):
     try:
         account = pwd.getpwnam(SERVICE_USER)
         if account.pw_shell not in ("/usr/sbin/nologin", "/sbin/nologin", "/bin/false"):
-            raise ContentScanManagerError("A conta had-content-scan já existe com shell de login; preservada")
+            raise ContentScanManagerError("A conta sfox-content-scan já existe com shell de login; preservada")
         return account.pw_uid, account.pw_gid, False
     except KeyError:
         nologin = "/usr/sbin/nologin" if os.path.exists("/usr/sbin/nologin") else "/sbin/nologin"
         useradd = shutil.which("useradd") or "/usr/sbin/useradd"
         runner([useradd, "--system", "--user-group", "--no-create-home",
-                "--home-dir", "/var/empty/had-content-scan", "--shell", nologin,
+                "--home-dir", "/var/empty/sfox-content-scan", "--shell", nologin,
                 SERVICE_USER])
         account = pwd.getpwnam(SERVICE_USER)
         return account.pw_uid, account.pw_gid, True

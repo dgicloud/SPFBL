@@ -14,7 +14,7 @@ import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[2]
-VERSION = "0.1.1-pilot"
+VERSION = "0.2.0-pilot"
 FILES = (
     "integrations/postfix/README.md",
     "integrations/postfix/postfix_content_scan_manager.py",
@@ -44,9 +44,9 @@ def build(version=VERSION):
         raise ValueError("invalid release version")
     release_dir = ROOT / "packaging" / "postfix" / "releases"
     release_dir.mkdir(parents=True, exist_ok=True)
-    name = "had-content-scan-postfix-{0}.tar.gz".format(version)
+    name = "spamfox-content-scan-postfix-{0}.tar.gz".format(version)
     target = release_dir / name
-    package_dir = "had-content-scan-postfix-{0}".format(version)
+    package_dir = "spamfox-content-scan-postfix-{0}".format(version)
     fd, temporary = tempfile.mkstemp(prefix=".had-content-scan-", dir=str(release_dir))
     os.close(fd)
     try:
