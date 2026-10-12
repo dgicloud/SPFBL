@@ -5,11 +5,13 @@ from __future__ import print_function
 
 import argparse
 import errno
+import http.client
 import hashlib
 import json
 import os
 import re
 import shutil
+import ssl
 import stat
 import subprocess
 import sys
@@ -35,14 +37,12 @@ LIB_DIR = "/usr/local/libexec/had-antispam"
 FILTER = "/usr/local/libexec/had-antispam/postfix_content_filter.py"
 SCAN_CLIENT = "/usr/local/libexec/had-antispam/scan_client.py"
 ENDPOINT = "https://matrix.hadcloud.srv.br/internal/sfox/scan"
-CLIENT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
-TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{40,256}$")
 SERVICE_BLOCK = (
     BEGIN + b"\n"
     b"had-content-scan unix - n n - 2 pipe\n"
     b"  -o pipe_destination_recipient_limit=1\n"
     b"  flags=q user=had-content-scan null_sender=\n"
-    b"  argv=/usr/bin/python3 /usr/local/libexec/had-antispam/postfix_content_filter.py --sender=${sender} --recipient=${recipient} --queue-id=${queue_id} --config="
+    b"  argv=/usr/bin/python3 /usr/local/libexec/had-antispam/postfix_content_filter.py --sender=${sender} --recipient=${recipient} --queue-id=${queue_id} --client-ip=${client_address} --helo=${client_helo} --auth-user=${sasl_username} --config="
     + CONFIG.encode("ascii") + b" --lock=" + UPLOAD_LOCK.encode("ascii") + b"\n"
     + END + b"\n"
 )
@@ -227,17 +227,42 @@ def transform_master_cf(data):
     return updated, True
 
 
-def config_bytes(client_id, token):
+def config_bytes():
     parsed = scan_client_url(ENDPOINT)
     if parsed != ENDPOINT:
         raise ContentScanManagerError("Endpoint local inválido")
-    if not CLIENT_ID_RE.match(client_id or ""):
-        raise ContentScanManagerError("client-id inválido")
-    if not TOKEN_RE.match(token):
-        raise ContentScanManagerError("Token deve ter de 40 a 256 caracteres base64url")
-    value = {"endpoint": ENDPOINT, "client_id": client_id, "token": token,
+    value = {"endpoint": ENDPOINT,
              "max_bytes": 25 * 1024 * 1024, "timeout_seconds": 20}
     return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+
+
+def gateway_preflight(connection_factory=None):
+    """Confirm TLS, Nginx allowlisting and source-IP profile before installation."""
+    from urllib.parse import urlsplit
+    parsed = urlsplit(ENDPOINT)
+    factory = connection_factory or http.client.HTTPSConnection
+    connection = factory(parsed.hostname, parsed.port or 443, timeout=5,
+                         context=ssl.create_default_context())
+    try:
+        # A GET reaches the protected Nginx location but does not enqueue a
+        # synthetic message for Rspamd.  The gateway deliberately responds
+        # 404 on that method/path after Nginx has accepted the source IP.
+        connection.request("GET", parsed.path)
+        response = connection.getresponse()
+        body = response.read(1024)
+    except Exception as exc:
+        raise ContentScanManagerError("Gateway indisponível ou IP sem acesso: " +
+                                      exc.__class__.__name__)
+    finally:
+        connection.close()
+    if response.status != 404 or b'"error":"not_found"' not in body:
+        if response.status == 403:
+            raise ContentScanManagerError(
+                "IP deste servidor não está liberado no Nginx/firewall e no perfil do monitor")
+        raise ContentScanManagerError(
+            "Gateway não confirmou o IP autorizado (esperado HTTP 404 para verificação sem mensagem; recebido {0})".format(
+                response.status))
+    return True
 
 
 def scan_client_url(value):
@@ -321,6 +346,8 @@ def validate(paths=None, runner=run_command, preflight=True):
     if master is None:
         raise ContentScanManagerError("master.cf ausente")
     transform_master_cf(master)
+    if preflight:
+        gateway_preflight()
     return "Postfix {0}: candidato de captura after-queue validado; nenhum arquivo alterado".format(version)
 
 
@@ -417,7 +444,7 @@ def _assert_clean_targets(paths):
             raise ContentScanManagerError("Diretório-alvo inseguro; preservado: " + directory)
 
 
-def install(client_id, token_file, paths=None, runner=run_command,
+def install(paths=None, runner=run_command,
             reload_postfix=False, preflight=True):
     paths = paths or Paths()
     if preflight:
@@ -425,14 +452,9 @@ def install(client_id, token_file, paths=None, runner=run_command,
     _version(paths, runner)
     _assert_no_global_filter(paths, runner)
     _assert_clean_targets(paths)
-    if not token_file or not os.path.isfile(token_file) or os.path.islink(token_file):
-        raise ContentScanManagerError("--token-file deve apontar para arquivo regular")
-    token_info = os.stat(token_file, follow_symlinks=False)
-    if token_info.st_uid != 0 or (stat.S_IMODE(token_info.st_mode) & 0o077):
-        raise ContentScanManagerError("Token precisa ser root-owned, modo 0600 ou mais restrito")
-    with open(token_file, "r") as stream:
-        token = stream.read().strip()
-    candidate_config = config_bytes(client_id, token)
+    candidate_config = config_bytes()
+    if preflight:
+        gateway_preflight()
     master_original = _read(paths.master)
     candidate_master, changed = transform_master_cf(master_original)
     if not changed:
@@ -485,7 +507,6 @@ def install(client_id, token_file, paths=None, runner=run_command,
         _postfix_check(paths, runner)
 
         manifest["status"] = "installed"
-        manifest["client_id"] = client_id
         manifest["reload_pending"] = not reload_postfix
         for name, item in manifest["files"].items():
             current = _read(item["path"])
@@ -610,8 +631,6 @@ def uninstall(paths=None, runner=run_command, requeue_all=False,
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("validate", "install", "activate", "healthcheck", "uninstall"))
-    parser.add_argument("--client-id")
-    parser.add_argument("--token-file")
     parser.add_argument("--reload", action="store_true")
     parser.add_argument("--requeue-all", action="store_true")
     args = parser.parse_args(argv)
@@ -620,9 +639,7 @@ def main(argv=None):
         if args.command == "validate":
             print(validate(paths))
         elif args.command == "install":
-            if not args.client_id or not args.token_file:
-                raise ContentScanManagerError("install requer --client-id e --token-file")
-            print(install(args.client_id, args.token_file, paths, reload_postfix=args.reload))
+            print(install(paths, reload_postfix=args.reload))
         elif args.command == "activate":
             print(activate(paths))
         elif args.command == "healthcheck":

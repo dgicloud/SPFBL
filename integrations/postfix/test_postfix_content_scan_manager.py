@@ -11,6 +11,7 @@ from postfix_content_scan_manager import (
     _assert_clean_targets,
     _assert_no_global_filter,
     config_bytes,
+    gateway_preflight,
     transform_master_cf,
 )
 
@@ -29,6 +30,9 @@ class PostfixContentScanManagerTests(unittest.TestCase):
     def test_transport_uses_the_paths_created_by_the_installer(self):
         self.assertIn(b"--config=" + CONFIG.encode("ascii"), SERVICE_BLOCK)
         self.assertIn(b"--lock=" + UPLOAD_LOCK.encode("ascii"), SERVICE_BLOCK)
+        self.assertIn(b"--client-ip=${client_address}", SERVICE_BLOCK)
+        self.assertIn(b"--helo=${client_helo}", SERVICE_BLOCK)
+        self.assertIn(b"--auth-user=${sasl_username}", SERVICE_BLOCK)
         self.assertIn(b"null_sender=\n", SERVICE_BLOCK)
         self.assertEqual(UPLOAD_LOCK_SECONDARY, UPLOAD_LOCK + ".1")
 
@@ -116,18 +120,43 @@ class PostfixContentScanManagerTests(unittest.TestCase):
         self.assertTrue(changed)
         self.assertEqual(updated.count(SMTP_OVERRIDE), 1)
 
-    def test_config_binds_fixed_https_endpoint_and_rejects_bad_inputs(self):
-        config = config_bytes("mx-one", "t" * 48)
+    def test_config_binds_fixed_https_endpoint_without_server_id_or_token(self):
+        config = config_bytes()
         self.assertIn(b"https://matrix.hadcloud.srv.br/internal/sfox/scan", config)
-        self.assertIn(b'"client_id":"mx-one"', config)
+        self.assertNotIn(b'"client_id"', config)
+        self.assertNotIn(b'"token"', config)
         self.assertNotIn(b"example.invalid", config)
 
-        for client_id in ("UPPER", "-starts-wrong", "x" * 65):
-            with self.subTest(client_id=client_id):
-                with self.assertRaises(ContentScanManagerError):
-                    config_bytes(client_id, "t" * 48)
-        with self.assertRaises(ContentScanManagerError):
-            config_bytes("mx-one", "short")
+    def test_gateway_preflight_requires_an_authorized_source_ip(self):
+        class Response(object):
+            status = 404
+
+            def read(self, _limit):
+                return b'{"error":"not_found"}'
+
+        class Connection(object):
+            def __init__(self, *_args, **_kwargs):
+                self.closed = False
+
+            def request(self, method, path):
+                self.request_data = [method, path]
+
+            def getresponse(self):
+                return Response()
+
+            def close(self):
+                self.closed = True
+
+        connections = []
+
+        def factory(*args, **kwargs):
+            connection = Connection(*args, **kwargs)
+            connections.append(connection)
+            return connection
+
+        self.assertTrue(gateway_preflight(connection_factory=factory))
+        self.assertEqual(["GET", "/internal/sfox/scan"], connections[0].request_data)
+        self.assertTrue(connections[0].closed)
 
 
 if __name__ == "__main__":

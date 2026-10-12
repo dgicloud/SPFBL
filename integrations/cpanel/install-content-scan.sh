@@ -3,9 +3,7 @@ set -Eeuo pipefail
 
 HERE=$(cd -- "$(dirname -- "$0")" && pwd)
 ROOT=$(cd -- "$HERE/../.." && pwd)
-CLIENT_ID=""
 ENDPOINT="https://matrix.hadcloud.srv.br/internal/sfox/scan"
-TOKEN_FILE=""
 TEST_RECIPIENT=""
 CHECK_ONLY=0
 FILTER_NAME=had-antispam-content-scan
@@ -29,20 +27,17 @@ INSTALLED_DATA_ACL=0
 fail() { printf 'HAD content scan cPanel: %s\n' "$*" >&2; exit 1; }
 usage() {
     cat <<'EOF'
-Uso: install-content-scan.sh --client-id ID [--test-recipient CAIXA_LOCAL] [--token-file ARQUIVO] [--endpoint HTTPS_URL] [--check]
+Uso: install-content-scan.sh [--test-recipient CAIXA_LOCAL] [--endpoint HTTPS_URL] [--check]
 
-O preflight --check não precisa de token. Na instalação, o token deve estar em
-arquivo root-only; nunca o passe como argumento. O cliente transmite a cópia
-unseen da mensagem já aceita, em blocos, sem criar arquivo .eml.
+O IP público do cPanel precisa estar liberado na allowlist da VM. O instalador
+transmite a cópia unseen da mensagem já aceita, em blocos, sem criar arquivo .eml.
 EOF
 }
 
 while (($#)); do
     case "$1" in
-        --client-id) [[ $# -ge 2 ]] || fail '--client-id requer um valor.'; CLIENT_ID=$2; shift 2 ;;
         --test-recipient) [[ $# -ge 2 ]] || fail '--test-recipient requer um valor.'; TEST_RECIPIENT=$2; shift 2 ;;
         --endpoint) [[ $# -ge 2 ]] || fail '--endpoint requer uma URL.'; ENDPOINT=$2; shift 2 ;;
-        --token-file) [[ $# -ge 2 ]] || fail '--token-file requer um arquivo.'; TOKEN_FILE=$2; shift 2 ;;
         --check) CHECK_ONLY=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) fail "argumento desconhecido: $1" ;;
@@ -60,7 +55,6 @@ command -v runuser >/dev/null || fail 'runuser não encontrado; não consigo tes
 [[ -r "$HERE/exim/sysfilter-content-scan.conf" ]] || fail 'snippet de system-filter ausente.'
 [[ -r "$HERE/manage_exim_data_acl.py" && -r "$HERE/manage_exim_acl.py" ]] || fail 'gerenciadores da ACL DATA ausentes no pacote.'
 [[ -r "$HERE/exim/acl-data-header-monitor.conf" ]] || fail 'snippet da ACL DATA ausente no pacote.'
-[[ "$CLIENT_ID" =~ ^[a-z0-9][a-z0-9._-]{0,63}$ ]] || fail 'client-id inválido; use letras minúsculas, números, ponto, hífen ou sublinhado.'
 [[ "$ENDPOINT" == "https://matrix.hadcloud.srv.br/internal/sfox/scan" ]] || fail 'endpoint deve ser o HTTPS autorizado da HAD.'
 if (( ! CHECK_ONLY )); then
     [[ -n "$TEST_RECIPIENT" ]] || fail '--test-recipient é obrigatório na instalação; informe uma caixa local que o Exim roteia.'
@@ -90,18 +84,12 @@ done
 grep -q 'HAD_SFOX_BSMTP=1' <<<"$PIPE_TRANSPORT_CONFIG" || fail "transporte $PIPE_TRANSPORT_NAME deve ativar o envelope BSMTP para repassar os destinatários."
 grep -Eq '^use_bsmtp( = true)?$' <<<"$PIPE_TRANSPORT_CONFIG" || fail "transporte $PIPE_TRANSPORT_NAME precisa de use_bsmtp = true."
 
-python3 - "$ENDPOINT" "$CLIENT_ID" <<'PY'
+python3 - "$ENDPOINT" <<'PY'
 import sys
 from urllib.parse import urlsplit
 parsed = urlsplit(sys.argv[1])
 if parsed.scheme != "https" or parsed.hostname != "matrix.hadcloud.srv.br" or parsed.path != "/internal/sfox/scan":
     raise SystemExit("endpoint HTTPS inválido")
-try:
-    sys.argv[2].encode("ascii")
-except UnicodeEncodeError:
-    raise SystemExit("client-id inválido")
-if not sys.argv[2].islower():
-    raise SystemExit("client-id inválido")
 PY
 
 python3 -m py_compile "$ROOT/integrations/content_scan/scan_client.py" || fail 'scan_client.py não compilou.'
@@ -114,13 +102,17 @@ url = urlsplit(sys.argv[1])
 connection = http.client.HTTPSConnection(url.hostname, url.port or 443, timeout=5,
                                          context=ssl.create_default_context())
 try:
-    connection.request("POST", url.path, body=b"", headers={"Content-Length": "0"})
+    # GET validates the HTTPS route and source allowlist without placing a
+    # synthetic message in the Rspamd queue. The gateway returns 404 here.
+    connection.request("GET", url.path)
     response = connection.getresponse()
     body = response.read(1024)
 finally:
     connection.close()
-if response.status != 403 or b'"error":"forbidden"' not in body:
-    raise SystemExit("Nginx allowlist/gateway não respondeu com o 403 JSON esperado para token ausente")
+if response.status == 403:
+    raise SystemExit("IP deste cPanel não está liberado na allowlist Nginx/firewall ou no perfil central")
+if response.status != 404 or b'"error":"not_found"' not in body:
+    raise SystemExit("gateway não confirmou o IP autorizado (esperado HTTP 404 para verificação sem mensagem)")
 PY
 
 if (( CHECK_ONLY )); then
@@ -128,12 +120,6 @@ if (( CHECK_ONLY )); then
     printf 'Pré-verificação concluída; cliente, endpoint HTTPS, system_filter e transporte pipe estão disponíveis.\n'
     exit 0
 fi
-
-[[ -n "$TOKEN_FILE" && -f "$TOKEN_FILE" ]] || fail '--token-file deve apontar para arquivo regular.'
-TOKEN_MODE=$(stat -c '%a' "$TOKEN_FILE")
-TOKEN_OWNER=$(stat -c '%u' "$TOKEN_FILE")
-(( TOKEN_OWNER == 0 )) || fail 'o arquivo do token precisa pertencer a root.'
-(( (8#$TOKEN_MODE & 077) == 0 )) || fail 'o arquivo do token deve ter modo 0600 ou mais restrito.'
 
 rollback() {
     local status=$?
@@ -170,21 +156,17 @@ install -o root -g root -m 0755 "$ROOT/integrations/content_scan/scan_client.py"
 ln -s "$CLIENT" "$CLIENT_LINK"
 
 INSTALLED_CONFIG=1
-python3 - "$ENDPOINT" "$CLIENT_ID" "$TOKEN_FILE" "$CLIENT_CONFIG" <<'PY'
+python3 - "$ENDPOINT" "$CLIENT_CONFIG" <<'PY'
 import json
 import os
 import sys
 import tempfile
-endpoint, client_id, token_path, destination = sys.argv[1:]
-with open(token_path, "r") as stream:
-    token = stream.read().strip()
-if len(token) < 40 or "\n" in token or "\r" in token:
-    raise SystemExit("token inválido")
+endpoint, destination = sys.argv[1:]
 directory = os.path.dirname(destination)
 fd, temporary = tempfile.mkstemp(prefix=".content-scan-", dir=directory)
 try:
     with os.fdopen(fd, "w") as stream:
-        json.dump({"endpoint": endpoint, "client_id": client_id, "token": token,
+        json.dump({"endpoint": endpoint,
                    "max_bytes": 25 * 1024 * 1024, "timeout_seconds": 20}, stream)
         stream.write("\n")
         stream.flush()
@@ -207,8 +189,8 @@ import sys
 config_path, lock_path = sys.argv[1:]
 with open(config_path, "r") as stream:
     config = json.load(stream)
-if not isinstance(config.get("token"), str) or len(config["token"]) < 40:
-    raise SystemExit("filter user cannot read a valid client credential")
+if config.get("endpoint") != "https://matrix.hadcloud.srv.br/internal/sfox/scan":
+    raise SystemExit("filter user cannot read a valid gateway endpoint")
 with open(lock_path, "a+") as lock:
     fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
