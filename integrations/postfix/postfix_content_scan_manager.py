@@ -53,6 +53,11 @@ SERVICE_BLOCK = (
     + END + b"\n"
 )
 SMTP_OVERRIDE = b"  -o content_filter=had-content-scan:dummy\n"
+LEGACY_SERVICE_BLOCK = SERVICE_BLOCK.replace(
+    b"  flags=q user=had-content-scan null_sender=\n",
+    b"  -o pipe_destination_recipient_limit=1\n"
+    b"  flags=q user=had-content-scan null_sender=\n",
+)
 
 
 class ContentScanManagerError(RuntimeError):
@@ -246,7 +251,10 @@ def transform_master_cf(data):
     span = _managed_transport_span(data)
     if span:
         start, end = span
-        if data[start:end] != SERVICE_BLOCK:
+        current = data[start:end]
+        if current == LEGACY_SERVICE_BLOCK:
+            return data[:start] + SERVICE_BLOCK + data[end:], True
+        if current != SERVICE_BLOCK:
             raise ContentScanManagerError("Transporte HAD existente diverge do pacote")
         lines = data.splitlines(keepends=True)
         smtp_start, smtp_end = _smtp_service_span(lines)
@@ -496,6 +504,30 @@ def _assert_clean_targets(paths):
             raise ContentScanManagerError("Diretório-alvo inseguro; preservado: " + directory)
 
 
+def _ensure_existing_master_settings(paths, manifest, runner):
+    """Replace only the known legacy service block from the first pilot."""
+    original = _read(paths.master)
+    candidate, changed = transform_master_cf(original)
+    if not changed:
+        return False
+    item = manifest["files"].get("master")
+    if item is None:
+        raise ContentScanManagerError("Snapshot do master.cf ausente; não alterei arquivos")
+    old_hash = item.get("installed_sha256")
+    metadata = _metadata(paths.master)
+    try:
+        _atomic_write(paths.master, candidate, metadata)
+        item["installed_sha256"] = _sha(candidate)
+        _write_manifest(paths, manifest)
+        _postfix_check(paths, runner)
+    except Exception:
+        _atomic_write(paths.master, original, metadata)
+        item["installed_sha256"] = old_hash
+        _write_manifest(paths, manifest)
+        raise
+    return True
+
+
 def _ensure_existing_main_settings(paths, manifest, runner):
     """Migrate an older managed install that lacked the queue-manager limit."""
     if "main" in manifest.get("files", {}):
@@ -544,9 +576,10 @@ def install(paths=None, runner=run_command,
         manifest = _load_manifest(paths)
         if manifest.get("status") != "installed":
             raise ContentScanManagerError("Snapshot não representa uma instalação concluída")
+        master_changed = _ensure_existing_master_settings(paths, manifest, runner)
         main_changed = _ensure_existing_main_settings(paths, manifest, runner)
         healthcheck(paths, runner=runner, preflight=False)
-        if main_changed and reload_postfix:
+        if (master_changed or main_changed) and reload_postfix:
             runner([paths.postfix, "reload"])
         return "already installed; Postfix after-queue MONITOR remains active"
     _assert_clean_targets(paths)

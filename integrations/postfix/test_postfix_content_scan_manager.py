@@ -7,6 +7,7 @@ from postfix_content_scan_manager import (
     SERVICE_BLOCK,
     SMTP_OVERRIDE,
     MAIN_BLOCK,
+    LEGACY_SERVICE_BLOCK,
     transform_main_cf,
     UPLOAD_LOCK,
     UPLOAD_LOCK_SECONDARY,
@@ -52,6 +53,7 @@ class PostfixContentScanManagerTests(unittest.TestCase):
                     mock.patch.object(manager, "_assert_no_global_filter"), \
                     mock.patch.object(manager, "gateway_preflight") as preflight, \
                     mock.patch.object(manager, "_load_manifest", return_value={"status": "installed", "files": {"main": {}}}), \
+                    mock.patch.object(manager, "_ensure_existing_master_settings", return_value=False), \
                     mock.patch.object(manager, "healthcheck", return_value="healthy") as check:
                 result = manager.install(paths, runner=lambda _command: "", reload_postfix=True)
 
@@ -92,6 +94,14 @@ class PostfixContentScanManagerTests(unittest.TestCase):
         self.assertIn(b"smtpd_sasl_auth_enable=yes", smtp_service)
         submission_service = updated.split(b"submission", 1)[1].split(b"pickup", 1)[0]
         self.assertNotIn(SMTP_OVERRIDE, submission_service)
+
+    def test_upgrades_only_the_known_legacy_transport_block(self):
+        legacy = BASE_MASTER.replace(SMTP_OVERRIDE, SMTP_OVERRIDE) + b"\n" + LEGACY_SERVICE_BLOCK
+        updated, changed = transform_master_cf(legacy)
+
+        self.assertTrue(changed)
+        self.assertIn(SERVICE_BLOCK, updated)
+        self.assertNotIn(b"pipe_destination_recipient_limit", updated)
 
     def test_is_idempotent_only_for_exact_managed_configuration(self):
         updated, changed = transform_master_cf(BASE_MASTER)
