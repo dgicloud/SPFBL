@@ -6,6 +6,8 @@ from postfix_content_scan_manager import (
     CONFIG,
     SERVICE_BLOCK,
     SMTP_OVERRIDE,
+    MAIN_BLOCK,
+    transform_main_cf,
     UPLOAD_LOCK,
     UPLOAD_LOCK_SECONDARY,
     Paths,
@@ -49,6 +51,7 @@ class PostfixContentScanManagerTests(unittest.TestCase):
                     mock.patch.object(manager, "_version"), \
                     mock.patch.object(manager, "_assert_no_global_filter"), \
                     mock.patch.object(manager, "gateway_preflight") as preflight, \
+                    mock.patch.object(manager, "_load_manifest", return_value={"status": "installed", "files": {"main": {}}}), \
                     mock.patch.object(manager, "healthcheck", return_value="healthy") as check:
                 result = manager.install(paths, runner=lambda _command: "", reload_postfix=True)
 
@@ -68,6 +71,15 @@ class PostfixContentScanManagerTests(unittest.TestCase):
             with self.assertRaisesRegex(ContentScanManagerError,
                                         "Arquivo-alvo já existe e foi preservado"):
                 _assert_clean_targets(paths)
+
+    def test_adds_single_recipient_limit_to_main_cf(self):
+        updated, changed = transform_main_cf(b"myhostname = example.test\n")
+
+        self.assertTrue(changed)
+        self.assertTrue(updated.endswith(MAIN_BLOCK))
+        same, changed = transform_main_cf(updated)
+        self.assertFalse(changed)
+        self.assertEqual(updated, same)
 
     def test_adds_after_queue_transport_only_to_port_25_smtp_service(self):
         updated, changed = transform_master_cf(BASE_MASTER)

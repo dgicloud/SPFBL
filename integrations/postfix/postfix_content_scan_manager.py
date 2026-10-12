@@ -23,6 +23,13 @@ SERVICE = "had-content-scan"
 CONTENT_FILTER = "had-content-scan:dummy"
 BEGIN = b"# BEGIN HAD-CONTENT-SCAN TRANSPORT"
 END = b"# END HAD-CONTENT-SCAN TRANSPORT"
+MAIN_BEGIN = b"# BEGIN HAD-CONTENT-SCAN SETTINGS"
+MAIN_END = b"# END HAD-CONTENT-SCAN SETTINGS"
+MAIN_BLOCK = (
+    MAIN_BEGIN + b"\n"
+    b"had-content-scan_destination_recipient_limit = 1\n"
+    + MAIN_END + b"\n"
+)
 STATE = "/var/lib/had-content-scan/postfix-install/current"
 ARCHIVE = "/var/lib/had-content-scan/postfix-install/archive"
 LOCK = "/run/lock/had-content-scan-postfix-installer.lock"
@@ -40,7 +47,6 @@ ENDPOINT = "https://matrix.hadcloud.srv.br/internal/sfox/scan"
 SERVICE_BLOCK = (
     BEGIN + b"\n"
     b"had-content-scan unix - n n - 2 pipe\n"
-    b"  -o pipe_destination_recipient_limit=1\n"
     b"  flags=q user=had-content-scan null_sender=\n"
     b"  argv=/usr/bin/python3 /usr/local/libexec/had-antispam/postfix_content_filter.py --sender=${sender} --recipient=${recipient} --queue-id=${queue_id} --client-ip=${client_address} --helo=${client_helo} --auth-user=${sasl_username} --config="
     + CONFIG.encode("ascii") + b" --lock=" + UPLOAD_LOCK.encode("ascii") + b"\n"
@@ -189,6 +195,50 @@ def _managed_transport_span(data):
     start = data.rfind(b"\n", 0, starts[0]) + 1
     end = data.find(b"\n", ends[0])
     return start, len(data) if end < 0 else end + 1
+
+
+def _managed_main_span(data):
+    starts = []
+    ends = []
+    offset = 0
+    while True:
+        pos = data.find(MAIN_BEGIN, offset)
+        if pos < 0:
+            break
+        starts.append(pos)
+        offset = pos + len(MAIN_BEGIN)
+    offset = 0
+    while True:
+        pos = data.find(MAIN_END, offset)
+        if pos < 0:
+            break
+        ends.append(pos)
+        offset = pos + len(MAIN_END)
+    if not starts and not ends:
+        return None
+    if len(starts) != 1 or len(ends) != 1 or starts[0] >= ends[0]:
+        raise ContentScanManagerError("Marcadores das configurações HAD ausentes ou divergentes")
+    start = data.rfind(b"\n", 0, starts[0]) + 1
+    end = data.find(b"\n", ends[0])
+    return start, len(data) if end < 0 else end + 1
+
+
+def transform_main_cf(data):
+    """Add the documented one-recipient limit for the managed pipe transport."""
+    span = _managed_main_span(data)
+    if span:
+        start, end = span
+        if data[start:end] != MAIN_BLOCK:
+            raise ContentScanManagerError("Configuração HAD existente no main.cf diverge do pacote")
+        return data, False
+    if b"had-content-scan_destination_recipient_limit" in data:
+        raise ContentScanManagerError("Limite do transporte HAD já existe fora dos marcadores gerenciados")
+    updated = data
+    if updated and not updated.endswith(b"\n"):
+        updated += b"\n"
+    if updated and not updated.endswith(b"\n\n"):
+        updated += b"\n"
+    return updated + MAIN_BLOCK, True
 
 
 def transform_master_cf(data):
@@ -343,9 +393,11 @@ def validate(paths=None, runner=run_command, preflight=True):
     version = _version(paths, runner)
     _assert_no_global_filter(paths, runner)
     master = _read(paths.master)
-    if master is None:
-        raise ContentScanManagerError("master.cf ausente")
+    main = _read(paths.main)
+    if master is None or main is None:
+        raise ContentScanManagerError("main.cf ou master.cf ausente")
     transform_master_cf(master)
+    transform_main_cf(main)
     if preflight:
         gateway_preflight()
     return "Postfix {0}: candidato de captura after-queue validado; nenhum arquivo alterado".format(version)
@@ -444,6 +496,36 @@ def _assert_clean_targets(paths):
             raise ContentScanManagerError("Diretório-alvo inseguro; preservado: " + directory)
 
 
+def _ensure_existing_main_settings(paths, manifest, runner):
+    """Migrate an older managed install that lacked the queue-manager limit."""
+    if "main" in manifest.get("files", {}):
+        return False
+    original = _read(paths.main)
+    candidate, changed = transform_main_cf(original)
+    if not changed:
+        # An administrator already has the exact managed block. Do not claim
+        # ownership of a file that was not snapshotted by this installer.
+        return False
+    metadata = _metadata(paths.main)
+    item = {"path": paths.main, "existed": True, "sha256": _sha(original),
+            "metadata": metadata, "installed_sha256": _sha(candidate)}
+    try:
+        _atomic_write(os.path.join(paths.state, "main.original"), original,
+                      {"mode": 0o600, "uid": 0, "gid": 0})
+        _atomic_write(paths.main, candidate, metadata)
+        manifest["files"]["main"] = item
+        _write_manifest(paths, manifest)
+        _postfix_check(paths, runner)
+    except Exception:
+        _atomic_write(paths.main, original, metadata)
+        try:
+            os.unlink(os.path.join(paths.state, "main.original"))
+        except OSError:
+            pass
+        raise
+    return True
+
+
 def install(paths=None, runner=run_command,
             reload_postfix=False, preflight=True):
     paths = paths or Paths()
@@ -457,21 +539,30 @@ def install(paths=None, runner=run_command,
         # verifies the exact manifest before reporting the active state.
         if preflight:
             gateway_preflight()
+        manifest = _load_manifest(paths)
+        if manifest.get("status") != "installed":
+            raise ContentScanManagerError("Snapshot não representa uma instalação concluída")
+        main_changed = _ensure_existing_main_settings(paths, manifest, runner)
         healthcheck(paths, runner=runner, preflight=False)
+        if main_changed and reload_postfix:
+            runner([paths.postfix, "reload"])
         return "already installed; Postfix after-queue MONITOR remains active"
     _assert_clean_targets(paths)
     candidate_config = config_bytes()
     if preflight:
         gateway_preflight()
     master_original = _read(paths.master)
+    main_original = _read(paths.main)
     candidate_master, changed = transform_master_cf(master_original)
-    if not changed:
+    candidate_main, main_changed = transform_main_cf(main_original)
+    if not changed or not main_changed:
         raise ContentScanManagerError("Integração já configurada sem snapshot; não alterei nada")
 
     directory_paths = (paths.config_base, paths.config_dir, paths.lib_dir,
                        paths.upload_base, paths.upload_dir, os.path.dirname(paths.state))
     directories = {path: os.path.isdir(path) for path in directory_paths}
     files = {
+        "main": (paths.main, main_original, _metadata(paths.main)),
         "master": (paths.master, master_original, _metadata(paths.master)),
         "config": (paths.config, _read(paths.config), _metadata(paths.config)),
         "filter": (paths.filter, _read(paths.filter), _metadata(paths.filter)),
@@ -511,6 +602,7 @@ def install(paths=None, runner=run_command,
         _atomic_write(paths.upload_lock, b"", {"mode": 0o600, "uid": uid, "gid": gid})
         _atomic_write(paths.upload_lock_secondary, b"",
                       {"mode": 0o600, "uid": uid, "gid": gid})
+        _atomic_write(paths.main, candidate_main, _metadata(paths.main))
         _atomic_write(paths.master, candidate_master, _metadata(paths.master))
         _postfix_check(paths, runner)
 
@@ -577,6 +669,10 @@ def healthcheck(paths=None, runner=run_command, preflight=True):
     updated, changed = transform_master_cf(master)
     if changed:
         raise ContentScanManagerError("master.cf não contém a captura HAD de conteúdo esperada")
+    main = _read(paths.main) or b""
+    updated_main, main_changed = transform_main_cf(main)
+    if main_changed:
+        raise ContentScanManagerError("main.cf não contém o limite de destinatário HAD esperado")
     for name, item in manifest["files"].items():
         current = _read(item["path"])
         if (_sha(current) if current is not None else None) != item.get("installed_sha256"):
