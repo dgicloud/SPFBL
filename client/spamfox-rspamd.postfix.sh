@@ -3,12 +3,12 @@ set -Eeuo pipefail
 umask 077
 
 # Bootstrap pinned to an immutable package checksum.
-VERSION='0.2.1-pilot'
+VERSION='0.2.3-pilot'
 PACKAGE="spamfox-content-scan-postfix-${VERSION}"
 ARCHIVE="${PACKAGE}.tar.gz"
 REPOSITORY='dgicloud/SPFBL'
 REF='hadcloud-cpanel-installer'
-SHA256='98a0543fb503c3d9aaed2a06b0c1d373c684d0ae9e9642c2027b07211a4d0acd'
+SHA256='7b46f73256d6f646ede4236174ceffed69a41c27d23bbc12ce98f8b00ed79931'
 BASE_URL="https://raw.githubusercontent.com/${REPOSITORY}/${REF}"
 ARCHIVE_URL="${BASE_URL}/packaging/postfix/releases/${ARCHIVE}"
 INSTALL_BASE='/opt/spamfox-postfix/releases'
@@ -23,7 +23,7 @@ Uso:
   bash spamfox-rspamd.postfix.sh --check
   bash spamfox-rspamd.postfix.sh
 
-Por padrão instala e ativa o filtro after-queue em modo MONITOR.
+O instalador preserva o caminho SMTP e nunca ativa content_filter ou reinjeção.
 EOF
 }
 
@@ -84,4 +84,4 @@ fi
 
 bash "$INSTALL_DIR/integrations/postfix/install-content-scan.sh" --reload
 bash "$INSTALL_DIR/integrations/postfix/healthcheck-content-scan.sh"
-printf 'Monitor SpamFox/Rspamd ativo em MONITOR. O filtro não altera aceitação ou entrega SMTP.\n'
+printf 'Proteção instalada: o caminho SMTP foi preservado; nenhum content_filter foi ativado.\n'

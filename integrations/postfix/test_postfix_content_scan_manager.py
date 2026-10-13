@@ -58,7 +58,7 @@ class PostfixContentScanManagerTests(unittest.TestCase):
                     mock.patch.object(manager, "healthcheck", return_value="healthy") as check:
                 result = manager.install(paths, runner=lambda _command: "", reload_postfix=True)
 
-        self.assertEqual("already installed; Postfix after-queue MONITOR remains active", result)
+        self.assertEqual("already installed; unsafe SMTP content_filter is disabled", result)
         preflight.assert_called_once()
         check.assert_called_once_with(paths, runner=mock.ANY, preflight=False)
 
@@ -84,17 +84,15 @@ class PostfixContentScanManagerTests(unittest.TestCase):
         self.assertFalse(changed)
         self.assertEqual(updated, same)
 
-    def test_adds_after_queue_transport_only_to_port_25_smtp_service(self):
+    def test_adds_monitor_transport_without_modifying_smtp_service(self):
         updated, changed = transform_master_cf(BASE_MASTER)
 
         self.assertTrue(changed)
-        self.assertEqual(updated.count(SMTP_OVERRIDE), 1)
+        self.assertNotIn(SMTP_OVERRIDE, updated)
         self.assertIn(SERVICE_BLOCK, updated)
         smtp_service = updated.split(b"submission", 1)[0]
-        self.assertIn(SMTP_OVERRIDE, smtp_service)
+        self.assertNotIn(b"content_filter", smtp_service)
         self.assertIn(b"smtpd_sasl_auth_enable=yes", smtp_service)
-        submission_service = updated.split(b"submission", 1)[1].split(b"pickup", 1)[0]
-        self.assertNotIn(SMTP_OVERRIDE, submission_service)
 
     def test_upgrades_only_the_known_legacy_transport_block(self):
         legacy = BASE_MASTER.replace(SMTP_OVERRIDE, SMTP_OVERRIDE) + b"\n" + HAD_LEGACY_SERVICE_BLOCK
@@ -121,13 +119,13 @@ class PostfixContentScanManagerTests(unittest.TestCase):
         self.assertFalse(changed)
         self.assertEqual(same, updated)
 
-    def test_refuses_an_existing_service_content_filter(self):
+    def test_preserves_an_existing_service_content_filter(self):
         master = BASE_MASTER.replace(
             b"  -o smtpd_sasl_auth_enable=yes\n",
             b"  -o content_filter=existing:dummy\n")
-
-        with self.assertRaisesRegex(ContentScanManagerError, "já possui"):
-            transform_master_cf(master)
+        updated, changed = transform_master_cf(master)
+        self.assertTrue(changed)
+        self.assertIn(b"content_filter=existing:dummy", updated)
 
     def test_global_filter_check_ignores_postconf_warnings_from_master(self):
         class FakePaths:
@@ -156,20 +154,17 @@ class PostfixContentScanManagerTests(unittest.TestCase):
         with self.assertRaisesRegex(ContentScanManagerError, "fora dos marcadores"):
             transform_master_cf(master)
 
-    def test_requires_exactly_one_inbound_smtp_service(self):
-        with self.assertRaisesRegex(ContentScanManagerError, "exatamente um"):
-            transform_master_cf(b"pickup unix n - n 60 1 pickup\n")
-
-        duplicated = BASE_MASTER + b"smtp inet n - n - - smtpd\n"
-        with self.assertRaisesRegex(ContentScanManagerError, "encontrados 2"):
-            transform_master_cf(duplicated)
+    def test_does_not_depend_on_inbound_smtp_service_shape(self):
+        updated, changed = transform_master_cf(b"pickup unix n - n 60 1 pickup\n")
+        self.assertTrue(changed)
+        self.assertIn(SERVICE_BLOCK, updated)
 
     def test_accepts_address_specific_smtp_listener(self):
         master = BASE_MASTER.replace(b"smtp      inet", b"192.0.2.10:smtp inet")
         updated, changed = transform_master_cf(master)
 
         self.assertTrue(changed)
-        self.assertEqual(updated.count(SMTP_OVERRIDE), 1)
+        self.assertEqual(updated.count(SMTP_OVERRIDE), 0)
 
     def test_config_binds_fixed_https_endpoint_without_server_id_or_token(self):
         config = config_bytes()

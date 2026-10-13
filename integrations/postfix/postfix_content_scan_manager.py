@@ -274,53 +274,44 @@ def transform_main_cf(data):
 
 
 def transform_master_cf(data):
-    """Add only an inbound SMTP service override and one managed pipe transport."""
+    """Install the monitor transport without changing the SMTP delivery path.
+
+    A monitor must never become a content_filter: that would require mail
+    reinjection and could delay, bounce, or duplicate the original message.
+    Existing unsafe releases are migrated by removing their SMTP override.
+    """
     if LEGACY_BEGIN in data or LEGACY_END in data:
         start = data.rfind(b"\n", 0, data.find(LEGACY_BEGIN)) + 1
         end_marker = data.find(LEGACY_END)
         end = data.find(b"\n", end_marker)
         end = len(data) if end < 0 else end + 1
         if data[start:end] not in (HAD_LEGACY_SERVICE_BLOCK, HAD_LEGACY_PIPE_SERVICE_BLOCK):
-            raise ContentScanManagerError("Transporte HAD legado diverge do formato migrável")
+            raise ContentScanManagerError("Transporte HAD legado diverge do formato migravel")
+        original = data
         data = data[:start] + SERVICE_BLOCK + data[end:]
-        data = data.replace(b"content_filter=had-content-scan:dummy", b"content_filter=sfox-content-scan:dummy")
-        return data, True
+        updated = data.replace(b"  -o content_filter=had-content-scan:dummy\n", b"")
+        return updated, updated != original
     span = _managed_transport_span(data)
     if span:
+        original = data
         start, end = span
         current = data[start:end]
         if current == SFOX_LEGACY_PIPE_SERVICE_BLOCK:
-            return data[:start] + SERVICE_BLOCK + data[end:], True
-        if current != SERVICE_BLOCK:
-            raise ContentScanManagerError("Transporte HAD existente diverge do pacote")
-        lines = data.splitlines(keepends=True)
-        smtp_start, smtp_end = _smtp_service_span(lines)
-        block = b"".join(lines[smtp_start:smtp_end])
-        if block.count(SMTP_OVERRIDE) != 1:
-            raise ContentScanManagerError("Override SMTP HAD ausente ou duplicado")
-        return data, False
-
-    lines = data.splitlines(keepends=True)
-    if not lines and data:
-        lines = [data]
-    smtp_start, smtp_end = _smtp_service_span(lines)
-    smtp_lines = lines[smtp_start:smtp_end]
-    if any(b"content_filter" in line for line in smtp_lines):
-        raise ContentScanManagerError("O serviço smtp já possui um override content_filter; preservei a configuração")
+            data = data[:start] + SERVICE_BLOCK + data[end:]
+        elif current != SERVICE_BLOCK:
+            raise ContentScanManagerError("Transporte SFOX existente diverge do pacote")
+        updated = data.replace(b"  -o content_filter=sfox-content-scan:dummy\n", b"")
+        return updated, updated != original
     if b"sfox-content-scan unix" in data or b"had-content-scan unix" in data:
-        raise ContentScanManagerError("Serviço SFOX/HAD já existe fora dos marcadores gerenciados")
-
-    # Put the setting first in the service block, before any existing per-service
-    # overrides. No existing content_filter is replaced or shadowed.
-    lines.insert(smtp_start + 1, SMTP_OVERRIDE)
-    updated = b"".join(lines)
+        raise ContentScanManagerError("Servico SFOX/HAD ja existe fora dos marcadores gerenciados")
+    # The transport is prepared for an explicit, future non-invasive capture
+    # mechanism. It is intentionally not coupled to smtp/inet.
+    updated = data
     if updated and not updated.endswith(b"\n"):
         updated += b"\n"
     if updated and not updated.endswith(b"\n\n"):
         updated += b"\n"
-    updated += SERVICE_BLOCK
-    return updated, True
-
+    return updated + SERVICE_BLOCK, True
 
 def config_bytes():
     parsed = scan_client_url(ENDPOINT)
@@ -545,12 +536,26 @@ def _ensure_existing_master_settings(paths, manifest, runner):
     """Replace only the known legacy service block from the first pilot."""
     original = _read(paths.master)
     candidate, changed = transform_master_cf(original)
-    if not changed:
-        return False
     item = manifest["files"].get("master")
     if item is None:
         raise ContentScanManagerError("Snapshot do master.cf ausente; não alterei arquivos")
     old_hash = item.get("installed_sha256")
+    # An administrator may already have removed the unsafe SMTP override.
+    # Accept only the exact safe form reconstructed from our own snapshot.
+    if not changed:
+        current_hash = _sha(original)
+        if current_hash == old_hash:
+            return False
+        # Control panels commonly rewrite master.cf. At this point the
+        # transport is exact and no SFOX content_filter exists, so retaining
+        # the administrator's current file is safer than restoring a stale
+        # snapshot. Future changes remain hash-protected from this baseline.
+        if b"content_filter=sfox-content-scan:dummy" in original or \
+                b"content_filter=had-content-scan:dummy" in original:
+            raise ContentScanManagerError("content_filter SFOX legado ainda presente; preservado")
+        item["installed_sha256"] = current_hash
+        _write_manifest(paths, manifest)
+        return True
     metadata = _metadata(paths.master)
     try:
         _atomic_write(paths.master, candidate, metadata)
@@ -618,7 +623,7 @@ def install(paths=None, runner=run_command,
         healthcheck(paths, runner=runner, preflight=False)
         if (master_changed or main_changed) and reload_postfix:
             runner([paths.postfix, "reload"])
-        return "already installed; Postfix after-queue MONITOR remains active"
+        return "already installed; unsafe SMTP content_filter is disabled"
     _assert_clean_targets(paths)
     candidate_config = config_bytes()
     if preflight:
@@ -689,7 +694,7 @@ def install(paths=None, runner=run_command,
             runner([paths.postfix, "reload"])
             manifest["reload_pending"] = False
             _write_manifest(paths, manifest)
-        return "installed; Postfix after-queue MONITOR; reload {0}".format(
+        return "installed; Postfix SMTP delivery path preserved; reload {0}".format(
             "executado" if reload_postfix else "pendente")
     except Exception as exc:
         try:
@@ -725,7 +730,7 @@ def activate(paths=None, runner=run_command, preflight=True):
     runner([paths.postfix, "reload"])
     manifest["reload_pending"] = False
     _write_manifest(paths, manifest)
-    return "Postfix recarregado; captura de conteúdo MONITOR ativa somente no serviço SMTP"
+    return "Postfix recarregado; nenhum content_filter foi ativado no SMTP"
 
 
 def healthcheck(paths=None, runner=run_command, preflight=True):
@@ -749,7 +754,7 @@ def healthcheck(paths=None, runner=run_command, preflight=True):
         current = _read(item["path"])
         if (_sha(current) if current is not None else None) != item.get("installed_sha256"):
             raise ContentScanManagerError("Arquivo gerenciado mudou: " + item["path"])
-    return "Postfix válido; filtro Rspamd after-queue em MONITOR; conteúdo não controla entrega"
+    return "Postfix válido; nenhum filtro de conteúdo está no caminho SMTP"
 
 
 def uninstall(paths=None, runner=run_command, requeue_all=False,
