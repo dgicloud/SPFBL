@@ -4,12 +4,12 @@ umask 077
 
 # Bootstrap pinned to an immutable package checksum. Update the version and
 # digest only after building and reviewing a new cPanel release bundle.
-VERSION='0.2.3-pilot'
+VERSION='0.2.4-pilot'
 PACKAGE="spamfox-content-scan-cpanel-${VERSION}"
 ARCHIVE="${PACKAGE}.tar.gz"
 REPOSITORY='dgicloud/SPFBL'
 REF='hadcloud-cpanel-installer'
-SHA256='a98c83ad9b0330d7fe967ff43f6a8e23acca74a5ada0a6539ff6baa1676713c7'
+SHA256='2f3259a0e4a18c082743fef7b98651304805d1d4e9a4f41c7375bdcfb3c08b4a'
 BASE_URL="https://raw.githubusercontent.com/${REPOSITORY}/${REF}"
 ARCHIVE_URL="${BASE_URL}/packaging/cpanel/releases/${ARCHIVE}"
 INSTALL_BASE='/opt/spamfox-cpanel/releases'

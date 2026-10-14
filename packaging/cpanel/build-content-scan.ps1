@@ -28,7 +28,7 @@ if (Test-Path -LiteralPath $Archive) {
 
 $RequiredFiles = @(
     "licence.txt",
-    "docs\CPANEL-RSPAMD-CONTENT-SCAN.md",
+    "integrations\cpanel\README.md",
     "integrations\content_scan\scan_client.py",
     "integrations\cpanel\exim\sysfilter-content-scan.conf",
     "integrations\cpanel\exim\transport-content-scan.conf",
@@ -63,7 +63,7 @@ try {
         [System.IO.File]::WriteAllText($Destination, $Text.Replace("`r`n", "`n"), [System.Text.UTF8Encoding]::new($false))
     }
     Set-Content -LiteralPath (Join-Path $Stage "VERSION") -Value $Version -NoNewline -Encoding ascii
-    Copy-Item -LiteralPath (Join-Path $Stage "docs\CPANEL-RSPAMD-CONTENT-SCAN.md") -Destination (Join-Path $Stage "README.md")
+    Copy-Item -LiteralPath (Join-Path $Stage "integrations\cpanel\README.md") -Destination (Join-Path $Stage "README.md")
     & $Tar -czf $Archive -C $TempRoot $BundleName
     if ($LASTEXITCODE -ne 0) {
         Remove-Item -LiteralPath $Archive -Force -ErrorAction SilentlyContinue

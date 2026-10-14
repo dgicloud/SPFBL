@@ -1,17 +1,13 @@
 # Documentação SpamFox
 
-A documentação operacional está organizada por tema. O core continua sendo o SPFBL upstream; as integrações, instalação e operação SpamFox ficam nestes documentos.
+A documentação pública contém somente instruções reutilizáveis de instalação e operação. Registros de desenvolvimento, pilotos, auditorias e evidências não fazem parte deste repositório.
 
 | Documento | Conteúdo |
 |---|---|
-| [Integrações](../integrations/README.md) | Ordem de implantação e limites de cPanel, Postfix e gateway |
-| [cPanel/Exim](../integrations/cpanel/README.md) | Cliente SPFBL, monitor e coletor after-queue |
-| [Postfix](../integrations/postfix/README.md) | Cliente SPFBL e proteção contra o antigo `content_filter` |
-| [Gateway/Rspamd](../integrations/content_scan/README.md) | Instalação central, rota HTTPS, allowlist e aprendizagem nativa |
+| [Instalação](INSTALLATION.md) | Ordem de implantação e checagens mínimas |
+| [Arquitetura](ARCHITECTURE.md) | Componentes e fronteiras de rede |
+| [Protocolo](PROTOCOL.md) | Portas, compatibilidade e fluxo de dados |
 | [Nginx e rotas](NGINX-ROUTES.md) | Vhosts, caminhos publicados e controles de acesso |
-| [Instalação geral](INSTALLATION.md) | Base do core SPFBL nativo |
-| [Arquitetura](ARCHITECTURE.md) | Componentes e fronteiras operacionais |
-
-## Evidências
-
-Os arquivos em [evidence/](evidence/) são registros históricos de validação e incidentes. Eles não são scripts de instalação nem representam o estado atual. Para instalar ou operar, use somente os READMEs de `integrations/`.
+| [Backup e restore](BACKUP-RESTORE.md) | Proteção do core e do estado |
+| [Observabilidade](OBSERVABILITY.md) | Saúde, métricas e logs |
+| [Integrações](../integrations/README.md) | cPanel, Postfix e gateway Rspamd |
