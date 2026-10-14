@@ -5,7 +5,7 @@ O pacote contém scripts, adapter Python 3.6+, hooks, CLI de feedback e licença
 
 ## Antes de instalar
 
-Cadastre o IP público de saída do cPanel com `CLIENT ADD` no core, associado à conta correta, e na allowlist `/etc/had-antispam/allowed-cpanels.txt` da VM. Aplique a allowlist com `systemctl restart had-antispam-firewall.service` na VM. No CSF do cPanel, permita saída TCP 9877 para `151.242.41.35`. Não é necessário abrir uma nova porta de entrada no cPanel.
+Cadastre o IP público de saída do cPanel com `CLIENT ADD` no core, associado à conta correta, e na allowlist `/etc/had-antispam/allowed-cpanels.txt` da VM. Aplique a allowlist com `systemctl restart had-antispam-firewall.service` na VM. No CSF do cPanel, permita saída TCP 9877 para `203.0.113.10`. Não é necessário abrir uma nova porta de entrada no cPanel.
 
 Este pacote acrescenta coleta em MONITOR e preserva a integração SPFBL de bloqueio já existente. Se não houver integração de bloqueio, ele não a cria: suas ACLs usam warn/fail-open. Não configura firewall, CLIENT, integrações externas ou conta web automaticamente.
 

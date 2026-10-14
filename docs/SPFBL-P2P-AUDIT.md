@@ -8,7 +8,7 @@ Este relatório rastreia o código local. Nenhum pacote foi enviado à rede púb
 
 | Pergunta | Resposta | Evidência e limite |
 |---|---|---|
-| Um primeiro start original de `had-antispam01.hadcloud.com.br` entra automaticamente na rede existente? | **NÃO** | `Core.main`, `src/net/spfbl/core/Core.java:2728-2731`, carrega os caches antes de construir `peerUDP` em `:2809`. `Server.loadCache`, `src/net/spfbl/core/Server.java:140`, chama `Peer.load`. O bootstrap em `src/net/spfbl/core/Peer.java:1086-1094` exige `Core.hasPeerConnection()`, que retorna falso quando `peerUDP == null` (`Core.java:249-254`). Além disso `run/spfbl.conf:38` deixa `hostname` comentado. |
+| Um primeiro start original de `antispam01.exemplo.com` entra automaticamente na rede existente? | **NÃO** | `Core.main`, `src/net/spfbl/core/Core.java:2728-2731`, carrega os caches antes de construir `peerUDP` em `:2809`. `Server.loadCache`, `src/net/spfbl/core/Server.java:140`, chama `Peer.load`. O bootstrap em `src/net/spfbl/core/Peer.java:1086-1094` exige `Core.hasPeerConnection()`, que retorna falso quando `peerUDP == null` (`Core.java:249-254`). Além disso `run/spfbl.conf:38` deixa `hostname` comentado. |
 | Podemos consumir reputação P2P pública sem trocar o algoritmo? | **PARCIAL** | Existe cadastro manual, recepção e combinação de tabelas; o uso efetivo depende de cadastro e aceitação pelo outro operador, DNS/IP compatíveis e correlação com dados locais. Não houve confirmação da aceitação pública. |
 | Precisa autorização? | **SIM**, no mecanismo técnico para utilizar dados recebidos; procedimento público **NÃO CONFIRMADO** | HELO desconhecido cria peer com `Receive.DROP` (`Peer.java:77-78`, `ServerP2P.java:356-367`). `PEER ADD` administrativo muda para ACCEPT (`AdministrationTCP.java:3264-3270`); `PEER SET` muda políticas (`:3302-3329`). Criar peer automaticamente não significa confiar nele. |
 | Como um peer entra? | **PARCIAL**: manualmente ou por HELO válido, seguido de autorização local | Sem descoberta de listas via DNS, gossip de peers ou Matrix HTTP no fluxo observado. Há bootstrap Matrix programado, mas ineficaz no primeiro start devido à ordem acima. |
@@ -132,12 +132,12 @@ A malha lógica privada é viável com três hostnames próprios que resolvam pa
 Exemplo de `/etc/spfbl/spfbl.conf` do node01, mantendo o restante da configuração original:
 
 ```ini
-hostname=had-antispam01.hadcloud.com.br
+hostname=antispam01.exemplo.com
 admin_port=9875
 spfbl_port=9877
 peer_limit=16
 udp_max=512
-admin_email=antispam-ops@hadcloud.com.br
+admin_email=antispam-ops@exemplo.com
 ```
 
 Replicar com hostname próprio nos node02/node03. Abrir UDP 9877 exclusivamente entre os três IPs HAD. Manter TCP 9875 administrativo em loopback/rede de administração; TCP 9877 só para os MTAs autorizados. A porta UDP não é bindada apenas à interface de administração. HTTPS/AES é um recurso separado pendente de correção/verificação, não pré-requisito para a malha básica.
@@ -145,8 +145,8 @@ Replicar com hostname próprio nos node02/node03. Abrir UDP 9877 exclusivamente 
 Após iniciar cada serviço em laboratório autorizado, enviar pela administração local no node01:
 
 ```sh
-printf '%s\n' 'PEER ADD had-antispam02.hadcloud.com.br:9877 antispam-ops@hadcloud.com.br' | ncat -w 3 127.0.0.1 9875
-printf '%s\n' 'PEER ADD had-antispam03.hadcloud.com.br:9877 antispam-ops@hadcloud.com.br' | ncat -w 3 127.0.0.1 9875
+printf '%s\n' 'PEER ADD antispam02.exemplo.com:9877 antispam-ops@exemplo.com' | ncat -w 3 127.0.0.1 9875
+printf '%s\n' 'PEER ADD antispam03.exemplo.com:9877 antispam-ops@exemplo.com' | ncat -w 3 127.0.0.1 9875
 printf '%s\n' 'PEER SHOW' | ncat -w 3 127.0.0.1 9875
 printf '%s\n' 'STORE' | ncat -w 3 127.0.0.1 9875
 ```

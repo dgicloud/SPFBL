@@ -1,6 +1,6 @@
 # SpamFox no Postfix
 
-A integração SPFBL de envelope é suportada e roda em MONITOR: o policy daemon devolve `DUNNO`, portanto não altera a decisão de entrega do Postfix. O core consultado é `151.242.41.35:9877`.
+A integração SPFBL de envelope é suportada e roda em MONITOR: o policy daemon devolve `DUNNO`, portanto não altera a decisão de entrega do Postfix. O core consultado é `203.0.113.10:9877`.
 
 ## Cliente SPFBL
 

@@ -6,7 +6,7 @@ O pacote não inclui core SPFBL, credenciais, mensagens `.eml`, nem instala Rspa
 
 ## Pré-requisitos
 
-1. O gateway central precisa estar ativo em `https://matrix.hadcloud.srv.br/internal/sfox/scan`.
+1. O gateway central precisa estar ativo em `https://matrix.exemplo.com/internal/sfox/scan`.
 2. No WHM, abra **Service Configuration → Exim Configuration Manager → Advanced Editor**. Em **CONFIG**, adicione:
 
    ```exim

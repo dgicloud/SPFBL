@@ -48,7 +48,7 @@ docker compose -f compose.dev.yaml -f packaging/dev/compose.dev.vm.yaml --profil
 ss -lntp 'sport = :19877'
 ```
 
-O listener deve aparecer como `127.0.0.1:19877`. No cPanel, o túnel dedicado é `ssh -N -L 127.0.0.1:19877:127.0.0.1:19877 had-tunnel@antispam.hadcloud.srv.br`; o adapter consulta esse endpoint local. Os serviços persistentes instalados na homologação são `had-antispam-dev-tunnel.service` e `had-antispam-dev-adapter.service`. A porta `9877` do core e ADMIN `9875` permanecem sem publicação no host.
+O listener deve aparecer como `127.0.0.1:19877`. No cPanel, o túnel dedicado é `ssh -N -L 127.0.0.1:19877:127.0.0.1:19877 had-tunnel@antispam.exemplo.com`; o adapter consulta esse endpoint local. Os serviços persistentes instalados na homologação são `had-antispam-dev-tunnel.service` e `had-antispam-dev-adapter.service`. A porta `9877` do core e ADMIN `9875` permanecem sem publicação no host.
 
 ADMIN não tem autenticação no upstream. O perfil padrão não publica portas e mantém os listeners acessíveis apenas aos containers ligados à rede Docker interna; não conecte essa rede a interfaces externas. A rede não tem saída para DNS, peers públicos ou serviços externos.
 

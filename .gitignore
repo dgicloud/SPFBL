@@ -8,12 +8,12 @@ __pycache__/
 # Bundles are generated; only the packages pinned by active bootstraps belong in Git.
 /packaging/cpanel/releases/*.tar.gz
 /packaging/cpanel/releases/*.tar.gz.sha256
-!/packaging/cpanel/releases/spamfox-content-scan-cpanel-0.2.2-pilot.tar.gz
-!/packaging/cpanel/releases/spamfox-content-scan-cpanel-0.2.2-pilot.tar.gz.sha256
+!/packaging/cpanel/releases/spamfox-content-scan-cpanel-0.2.3-pilot.tar.gz
+!/packaging/cpanel/releases/spamfox-content-scan-cpanel-0.2.3-pilot.tar.gz.sha256
 /packaging/postfix/releases/*.tar.gz
 /packaging/postfix/releases/*.tar.gz.sha256
-!/packaging/postfix/releases/spamfox-content-scan-postfix-0.2.4-pilot.tar.gz
-!/packaging/postfix/releases/spamfox-content-scan-postfix-0.2.4-pilot.tar.gz.sha256
+!/packaging/postfix/releases/spamfox-content-scan-postfix-0.2.5-pilot.tar.gz
+!/packaging/postfix/releases/spamfox-content-scan-postfix-0.2.5-pilot.tar.gz.sha256
 /docs/evidence/
 /packaging/audit/
 /packaging/dev/

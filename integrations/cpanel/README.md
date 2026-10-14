@@ -1,6 +1,6 @@
 # SpamFox no cPanel/Exim
 
-Esta integração mantém o core SPFBL intacto. O cliente consulta `151.242.41.35:9877`, aplica as ACLs compatíveis com cPanel e preserva os retornos do SPFBL. A marca SpamFox/SFOX aparece somente nas mensagens operacionais e ACLs do cliente.
+Esta integração mantém o core SPFBL intacto. O cliente consulta `203.0.113.10:9877`, aplica as ACLs compatíveis com cPanel e preserva os retornos do SPFBL. A marca SpamFox/SFOX aparece somente nas mensagens operacionais e ACLs do cliente.
 
 ## 1. Cliente SPFBL
 
@@ -23,7 +23,7 @@ bash spamfox-monitor.sh --test-recipient caixa@dominio.tld
 
 ## 2. Coletor Rspamd opcional
 
-O coletor envia uma cópia de mensagem já aceita para `https://matrix.hadcloud.srv.br/internal/sfox/scan`. Ele não instala Rspamd nem Redis no cPanel.
+O coletor envia uma cópia de mensagem já aceita para `https://matrix.exemplo.com/internal/sfox/scan`. Ele não instala Rspamd nem Redis no cPanel.
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/dgicloud/SPFBL/hadcloud-cpanel-installer/client/spamfox-rspamd.cpanel.sh

@@ -20,8 +20,8 @@ O core SPFBL permanece nativo. SpamFox identifica os scripts, mensagens e opera�
 
 ## Endereços da implantação HAD
 
-- Core SPFBL: `151.242.41.35:9877`
-- Painel e gateway HTTPS: `https://matrix.hadcloud.srv.br`
+- Core SPFBL: `203.0.113.10:9877`
+- Painel e gateway HTTPS: `https://matrix.exemplo.com`
 - Gateway de conteúdo: `POST /internal/sfox/scan` (restrito à allowlist)
 - Rspamd e Redis: somente loopback na VM central.
 

@@ -6,13 +6,13 @@
 
 ## Resultado
 
-O ambiente de desenvolvimento está executando tanto no checkout local quanto na VM `antispam.hadcloud.srv.br`. O core foi compilado com Java 8 e respondeu aos testes sintéticos de protocolo. O código original em `src/`, `lib/`, `client/`, `run/`, `data/`, `dist/`, `debian/`, `web/` e `template/` permanece sem diferenças em relação ao upstream configurado.
+O ambiente de desenvolvimento está executando tanto no checkout local quanto na VM `antispam.exemplo.com`. O core foi compilado com Java 8 e respondeu aos testes sintéticos de protocolo. O código original em `src/`, `lib/`, `client/`, `run/`, `data/`, `dist/`, `debian/`, `web/` e `template/` permanece sem diferenças em relação ao upstream configurado.
 
 A VM não recebeu ACL ou integração ativa no Exim. Para desenvolvimento, a homologação cPanel agora mantém somente um túnel SSH restrito e o adapter local em MONITOR, ambos como serviços systemd; o core continua sem portas públicas. O tráfego SPFBL fica numa rede Docker interna, sem saída para DNS ou peers públicos, e o P2P segue desligado.
 
 ## Ambiente instalado
 
-- Destino: DNS `antispam.hadcloud.srv.br` → `151.242.41.35` (registro A confirmado em 2026-10-01). O sistema ainda informa o hostname interno `mg1-hcl-srv02`; esse hostname não foi alterado.
+- Destino: DNS `antispam.exemplo.com` → `203.0.113.10` (registro A confirmado em 2026-10-01). O sistema ainda informa o hostname interno `mg1-hcl-srv02`; esse hostname não foi alterado.
 - Sistema observado: Ubuntu 24.04.3 LTS, arquitetura x86_64, 4 vCPU, 5,8 GiB de RAM e 61 GiB livres no disco raiz durante a inspeção.
 - Docker Engine: `29.1.3`; Docker Compose: `2.40.3`, instalados dos pacotes do Ubuntu.
 - Diretório de execução: `/opt/had-antispam-dev`.
@@ -40,7 +40,7 @@ O container do core roda como UID/GID `10001`, com filesystem raiz somente para 
 | Adapter Python 3.6.15 → core real | PASS no namespace Docker isolado; consulta sintética retornou `LAN`, `action=continue`, em 5 ms. |
 | Túnel SSH restrito → core real | PASS em container descartável; adapter consultou o core pelo bridge loopback e socket Unix, retornando `LAN`/`continue` em 2 ms. A chave Ed25519 com `restrict` e `PermitOpen 127.0.0.1:19877` não alcançou ADMIN `9875`. |
 | Bridges de transporte na VM | PASS; socket `core.sock` saudável, listener `127.0.0.1:19877`, UID/GID `10001:20001`, host network; o core continua sem portas publicadas. A consulta local pelo adapter retornou `LAN`/`continue` em 7 ms após restart. |
-| Túnel real cPanel → VM → core | PASS; chave dedicada do usuário `had-tunnel` encaminhou consulta ao core real pelo endereço `antispam.hadcloud.srv.br`; adapter recebeu `LAN` em 73 ms. ADMIN `9875` foi negado pela mesma conta/chave. |
+| Túnel real cPanel → VM → core | PASS; chave dedicada do usuário `had-tunnel` encaminhou consulta ao core real pelo endereço `antispam.exemplo.com`; adapter recebeu `LAN` em 73 ms. ADMIN `9875` foi negado pela mesma conta/chave. |
 | Exim `readsocket` + fallback | PASS local e VM; Exim `4.98.2` usou o socket Unix `0660`, consultou o core em 6 ms localmente e 19 ms na VM, retornando `CONTINUE|decision|LAN`; socket ausente retornou `CONTINUE|socket_error`. |
 | Serviços de desenvolvimento no cPanel | PASS; túnel e adapter systemd estão ativos e habilitados. Chave privada `root:root 0600`; socket do adapter `/run/had-antispam/monitor.sock`, `mailnull:mail 0660`. |
 | Exim cPanel `readsocket` → core real | PASS em homologação, somente por `exim -be`; Exim `4.100.1` consultou pelo socket ativo e recebeu `CONTINUE|decision|LAN`. Com socket ausente, recebeu `CONTINUE|socket_error`. ACL ativa não foi alterada. |
@@ -49,7 +49,7 @@ O container do core roda como UID/GID `10001`, com filesystem raiz somente para 
 
 O host cPanel foi inspecionado com Python `3.6.8` em `/usr/bin/python3`, sem runtime Python mais novo identificado. O adapter evita APIs posteriores; os 18 testes passaram com esse Python e também com Python `3.6.15` em Linux. Os serviços foram habilitados no cPanel de homologação sem hook Exim.
 
-O hostname da VM resolve para `151.242.41.35`; não é necessário outro hostname para esse ambiente. Após instalar os bridges, o teste externo confirmou `22/tcp` disponível e `9875`, `9877` e `19877/tcp` inacessíveis. O túnel de saída, a conta/chave dedicada e o serviço adapter no cPanel consultam o core real. O hook Exim ativo ainda não foi instalado.
+O hostname da VM resolve para `203.0.113.10`; não é necessário outro hostname para esse ambiente. Após instalar os bridges, o teste externo confirmou `22/tcp` disponível e `9875`, `9877` e `19877/tcp` inacessíveis. O túnel de saída, a conta/chave dedicada e o serviço adapter no cPanel consultam o core real. O hook Exim ativo ainda não foi instalado.
 
 Os tempos são de poucas chamadas sintéticas e não representam teste de carga, percentis ou SLA.
 

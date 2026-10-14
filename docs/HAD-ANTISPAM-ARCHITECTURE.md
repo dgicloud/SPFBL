@@ -37,7 +37,7 @@ As ACLs devem entrar nos hooks persistentes do cPanel, sem editar `/etc/exim.con
 
 ### Transporte cPanel → core
 
-O DNS `antispam.hadcloud.srv.br` identifica a VM; não é necessário outro hostname para o MVP. O protocolo TCP do SPFBL não cifra consultas. No cPanel, Exim conversa com o adapter pelo socket Unix local `0660`; o adapter consulta `127.0.0.1:19877`; um túnel SSH iniciado pelo cPanel encaminha esse TCP local para `127.0.0.1:19877` na VM. Na VM, um sidecar na rede Docker interna encaminha uma linha pelo socket Unix compartilhado ao listener SPFBL `core:9877`. O core não publica portas no host.
+O DNS `antispam.exemplo.com` identifica a VM; não é necessário outro hostname para o MVP. O protocolo TCP do SPFBL não cifra consultas. No cPanel, Exim conversa com o adapter pelo socket Unix local `0660`; o adapter consulta `127.0.0.1:19877`; um túnel SSH iniciado pelo cPanel encaminha esse TCP local para `127.0.0.1:19877` na VM. Na VM, um sidecar na rede Docker interna encaminha uma linha pelo socket Unix compartilhado ao listener SPFBL `core:9877`. O core não publica portas no host.
 
 A conta e a chave SSH são dedicadas, sem shell/TTY, com `restrict,port-forwarding,permitopen="127.0.0.1:19877"`; o bloco `Match User` usa `AllowTcpForwarding local`, `PermitOpen 127.0.0.1:19877` e nega StreamLocal, agente, X11 e sessões. O ensaio descartável em `packaging/dev/ssh-tunnel-smoke.py` e uma consulta originada no cPanel de homologação comprovaram MONITOR ao core real; ADMIN `9875` não é alcançável por essa identidade. Os bridges estão na VM com reinício após reboot e os serviços de túnel/adapter estão instalados no cPanel. O endereço DNS atual basta; não é necessário outro registro. O hook ACL do Exim permanece inativo.
 

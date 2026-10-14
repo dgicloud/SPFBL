@@ -185,7 +185,7 @@ git remote rename origin upstream
 Depois adicionar repositório HAD:
 
 ```bash
-git remote add origin git@github.com:HADCloud/had-antispam.git
+git remote add origin git@github.com:organization/spamfox.git
 ```
 
 Estrutura:
@@ -607,7 +607,7 @@ Incluir todo host:
 Responder de forma conclusiva:
 
 ```text
-Se eu subir had-antispam01.hadcloud.com.br com o código original SPFBL,
+Se eu subir antispam01.exemplo.com com o código original SPFBL,
 ele entra automaticamente na rede P2P existente?
 ```
 
@@ -1093,7 +1093,7 @@ Arquivo:
 Exemplo:
 
 ```ini
-SERVER=antispam.hadcloud.com.br
+SERVER=antispam.exemplo.com
 PORT=9877
 TIMEOUT=1
 FAIL_OPEN=true
@@ -1222,7 +1222,7 @@ Preservar servidor DNSBL existente no core se possível.
 Futuro:
 
 ```text
-dnsbl.antispam.hadcloud.com.br
+dnsbl.antispam.exemplo.com
 ```
 
 Antes disso, validar completamente funcionamento original.
@@ -1325,9 +1325,9 @@ avisos GPL
 Propostos:
 
 ```text
-antispam.hadcloud.com.br
-dnsbl.antispam.hadcloud.com.br
-panel.antispam.hadcloud.com.br
+antispam.exemplo.com
+dnsbl.antispam.exemplo.com
+panel.antispam.exemplo.com
 ```
 
 Não substituir `*.spfbl.net` antes de saber exatamente o papel de cada dependência.

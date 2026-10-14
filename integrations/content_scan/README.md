@@ -18,10 +18,10 @@ O instalador configura Rspamd + Redis no loopback, instala o gateway em `127.0.0
 | Rota | Destino | Acesso |
 |---|---|---|
 | `POST /internal/sfox/scan` | `127.0.0.1:11335/v1/scan` | Apenas IPs em `allowed-cpanels.txt` |
-| `/` em `matrix.hadcloud.srv.br` | painel SPFBL em `127.0.0.1:8080` | HTTPS público, raiz redireciona para `/pt/` |
-| `https://antispam.hadcloud.srv.br/` | WebUI Rspamd | conforme autenticação do vhost |
+| `/` em `matrix.exemplo.com` | painel SPFBL em `127.0.0.1:8080` | HTTPS público, raiz redireciona para `/pt/` |
+| `https://antispam.exemplo.com/` | WebUI Rspamd | conforme autenticação do vhost |
 
-O snippet `packaging/content-scan/had-sfox-scan-location.conf` contém os limites de corpo, timeouts e `proxy_request_buffering off`. O vhost principal está em `packaging/native/nginx-matrix.conf` e inclui o snippet no servidor HTTPS de `matrix.hadcloud.srv.br`.
+O snippet `packaging/content-scan/had-sfox-scan-location.conf` contém os limites de corpo, timeouts e `proxy_request_buffering off`. O vhost principal está em `packaging/native/nginx-matrix.conf` e inclui o snippet no servidor HTTPS de `matrix.exemplo.com`.
 
 ## Clientes e aprendizagem
 

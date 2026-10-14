@@ -1,6 +1,6 @@
 # ClamAV no fluxo central Rspamd
 
-O Enhance SP01 já envia uma cópia após a fila para o gateway central Rspamd. O ClamAV foi integrado nessa VM central, `antispam.hadcloud.srv.br` (`151.242.41.35`), para que os anexos enviados pelos monitores sejam verificados sem instalar outro daemon pesado no SP01. O coletor, o Postfix, o SPFBL e a entrega não foram alterados.
+O Enhance SP01 já envia uma cópia após a fila para o gateway central Rspamd. O ClamAV foi integrado nessa VM central, `antispam.exemplo.com` (`203.0.113.10`), para que os anexos enviados pelos monitores sejam verificados sem instalar outro daemon pesado no SP01. O coletor, o Postfix, o SPFBL e a entrega não foram alterados.
 
 O piloto usa os bancos oficiais atualizados pelo `freshclam` e adiciona ao resultado os símbolos `CLAM_VIRUS`, `CLAM_VIRUS_FAIL`, `CLAM_VIRUS_ENCRYPTED` e `CLAM_VIRUS_MACRO`. O relatório `had-content-scan-report` agrega esses símbolos por cliente sem mostrar remetentes, assuntos, nomes de malware ou conteúdo. `CLAM_VIRUS` está com peso zero e sem ação de rejeição; esta etapa detecta e registra, mas a cópia monitorada é analisada depois que o Postfix já aceitou e entregou a mensagem.
 
