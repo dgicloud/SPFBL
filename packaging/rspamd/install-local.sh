@@ -4,6 +4,7 @@ set -Eeuo pipefail
 MARKER="# HAD-ANTISPAM-RSPAMD-MANAGED"
 BACKUP_ROOT=/var/backups/had-antispam/rspamd
 CONFIG_DIR=/etc/rspamd/local.d
+LUA_DIR=/etc/rspamd/lua.local.d
 REDIS_CONFIG=/etc/redis/redis.conf
 REDIS_EXTRA=/etc/redis/had-antispam.conf
 HAD_CONFIG=/etc/had-antispam
@@ -62,7 +63,7 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y rspamd redis-server
 
 command -v rspamadm >/dev/null || fail 'rspamadm não foi instalado.'
 command -v redis-server >/dev/null || fail 'redis-server não foi instalado.'
-install -d -o root -g root -m 0755 "$CONFIG_DIR" /etc/rspamd/override.d
+install -d -o root -g root -m 0755 "$CONFIG_DIR" "$LUA_DIR" /etc/rspamd/override.d
 install -d -o root -g root -m 0755 /etc/redis
 install -d -o root -g root -m 0755 "$HAD_CONFIG"
 
@@ -95,26 +96,42 @@ servers = "127.0.0.1:6379";
 timeout = 1s;
 EOF
 
-write_managed "$CONFIG_DIR/classifier-bayes.conf" 0644 <<'EOF'
+write_managed "$CONFIG_DIR/classifier-bayes.conf" 0644 < \
+    "$ROOT/packaging/rspamd/pilot/classifier-bayes-autolearn.conf"
+
+write_managed "$CONFIG_DIR/settings.conf" 0644 < \
+    "$ROOT/packaging/rspamd/pilot/content-autolearn-settings.conf"
+
+write_managed "$LUA_DIR/spamfox_autolearn_guard.lua" 0644 < "$ROOT/packaging/rspamd/pilot/spamfox_autolearn_guard.lua"
+
+write_managed "$CONFIG_DIR/greylist.conf" 0644 <<'EOF'
 # HAD-ANTISPAM-RSPAMD-MANAGED
-new_schema = true;
-backend = "redis";
-min_tokens = 11;
-min_learns = 200;
-# Training is reserved for operator-reviewed SPAM/HAM; classifier predictions do not train themselves.
-autolearn = "return function(task) return nil end";
+# Content copies are already accepted; SMTP greylisting belongs to SPFBL.
+enabled = false;
 EOF
 
 write_managed "$CONFIG_DIR/worker-normal.inc" 0644 <<'EOF'
 # HAD-ANTISPAM-RSPAMD-MANAGED
 bind_socket = "127.0.0.1:11333";
 count = 2;
+allow_file_and_shm_inputs = false;
 EOF
 
 write_managed "$CONFIG_DIR/options.inc" 0644 <<'EOF'
 # HAD-ANTISPAM-RSPAMD-MANAGED
 max_message = 25M;
 task_timeout = 12s;
+history_rows = 1000;
+EOF
+
+write_managed "$CONFIG_DIR/history_redis.conf" 0644 <<'EOF'
+# HAD-ANTISPAM-RSPAMD-MANAGED
+servers = "127.0.0.1:6379";
+key_prefix = "rs_history{{HOSTNAME}}{{COMPRESS}}";
+expire = 604800;
+nrows = 1000;
+compress = true;
+subject_privacy = false;
 EOF
 
 if [[ ! -r "$HAD_CONFIG/rspamd-controller.secret" ]]; then
@@ -172,6 +189,7 @@ write_managed /etc/systemd/system/rspamd.service.d/10-had-antispam.conf 0644 <<'
 # HAD-ANTISPAM-RSPAMD-MANAGED
 [Service]
 CPUWeight=50
+CPUQuota=200%
 MemoryHigh=768M
 MemoryMax=1G
 TasksMax=128
@@ -181,6 +199,7 @@ write_managed /etc/systemd/system/redis-server.service.d/10-had-antispam.conf 06
 # HAD-ANTISPAM-RSPAMD-MANAGED
 [Service]
 CPUWeight=30
+CPUQuota=50%
 MemoryHigh=640M
 MemoryMax=768M
 TasksMax=64
@@ -206,5 +225,5 @@ systemctl is-active --quiet rspamd.service || fail 'Rspamd não ficou ativo.'
 trap - EXIT
 printf 'Rspamd %s e Redis ativos; Bayes usa Redis e espera 200 amostras por classe.\n' "$(rspamd --version | head -n1)"
 printf 'Scanner/controller vinculados somente a 127.0.0.1; nenhuma porta pública foi aberta.\n'
-printf 'Aprendizado automático desativado; classifique apenas exemplos revisados via learn_spam/learn_ham.\n'
+printf 'Autotreino nativo configurado; o gateway só o seleciona para clientes opt-in e mensagens elegíveis.\n'
 printf 'Snapshot de configuração prévia: %s\n' "$BACKUP"

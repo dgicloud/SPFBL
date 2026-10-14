@@ -1,13 +1,13 @@
 # Instalar coleta técnica no cPanel/Exim
 
 Pacote autocontido: `had-antispam-cpanel-ee7b127.tar.gz`.
-O pacote contém scripts, adapter Python 3.6+, hooks, CLI de feedback e licença upstream; não contém credenciais, dados de mensagens, core Java ou chave OpenRouter.
+O pacote contém scripts, adapter Python 3.6+, hooks, CLI de feedback e licença upstream; não contém credenciais, dados de mensagens, core Java.
 
 ## Antes de instalar
 
 Cadastre o IP público de saída do cPanel com `CLIENT ADD` no core, associado à conta correta, e na allowlist `/etc/had-antispam/allowed-cpanels.txt` da VM. Aplique a allowlist com `systemctl restart had-antispam-firewall.service` na VM. No CSF do cPanel, permita saída TCP 9877 para `151.242.41.35`. Não é necessário abrir uma nova porta de entrada no cPanel.
 
-Este pacote acrescenta coleta em MONITOR e preserva a integração SPFBL de bloqueio já existente. Se não houver integração de bloqueio, ele não a cria: suas ACLs usam warn/fail-open. Não configura firewall, CLIENT, chave Jev ou conta web automaticamente.
+Este pacote acrescenta coleta em MONITOR e preserva a integração SPFBL de bloqueio já existente. Se não houver integração de bloqueio, ele não a cria: suas ACLs usam warn/fail-open. Não configura firewall, CLIENT, integrações externas ou conta web automaticamente.
 
 ## No cPanel, como root
 
@@ -42,9 +42,9 @@ python3 integrations/cpanel/manage_exim_data_acl.py healthcheck
 journalctl -u had-antispam-client --since '10 minutes ago' --no-pager
 ```
 
-Dados técnicos ficam nos eventos locais do adapter. Nesta versão, somente decisão SPFBL e booleanos de autenticação SMTP/TLS têm origem configurada; os demais sinais continuam desconhecidos até validação no servidor. O registro correlacionável exige mensagem elegível e ticket único. Não há captura de corpo pelo coletor e não há serviço Jev neste cPanel. O HEADER nativo SPFBL existente permanece separado da coleta técnica.
+Dados técnicos ficam nos eventos locais do adapter. Nesta versão, somente decisão SPFBL e booleanos de autenticação SMTP/TLS têm origem configurada; os demais sinais continuam desconhecidos até validação no servidor. O registro correlacionável exige mensagem elegível e ticket único. Não há captura de corpo pelo coletor. O HEADER nativo SPFBL existente permanece separado da coleta técnica.
 
-O recebimento central desses eventos e o gatilho calibrado Jev ainda precisam ser implementados; instalar este pacote não ativa análises contínuas de IA. A autenticação de envio dos sinais para a VM pertence a essa etapa futura. Não confundir o segredo HMAC local de correlação com uma credencial de transporte central.
+Os sinais técnicos permanecem locais e servem apenas a diagnóstico; a análise de conteúdo ocorre pelo coletor Rspamd separado. Não confundir o segredo HMAC local de correlação com uma credencial de transporte central.
 
 ## Análise de conteúdo Rspamd (opcional, pacote separado)
 

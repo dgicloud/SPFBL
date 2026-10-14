@@ -1,88 +1,45 @@
-# Coletor de conteúdo SpamFox
+# Gateway de conteúdo e Rspamd
 
-O coletor é um adaptador pequeno em Python padrão; não instala Java, Rspamd, Redis, bibliotecas de IA nem um segundo MTA. Ele lê a cópia `unseen` entregue pelo Exim em `stdin` e transmite blocos HTTPS à VM central. Não cria arquivo `.eml` ou fila de conteúdo em disco no cPanel.
+O gateway recebe cópias de mensagens que já foram aceitas pelo MTA, faz fila somente em RAM e encaminha ao Rspamd local. Ele nunca participa da resposta SMTP do cliente.
 
-## Fluxo
+## VM central
 
-1. O Exim recebe DATA e aceita a mensagem normalmente.
-2. No primeiro ciclo de entrega, o system filter cria uma cópia `unseen` somente para mensagens SMTP externas não autenticadas. O endereço original mantém sua rota normal.
-3. O cliente envia a cópia por HTTPS autenticado para `matrix.hadcloud.srv.br/internal/sfox/scan`. Um lock local limita o upload simultâneo a uma mensagem por cPanel.
-4. O Nginx autoriza apenas os IPs da allowlist cPanel, não grava o corpo em arquivo temporário e faz proxy sem request buffering.
-5. O gateway valida token e CIDR, limita o corpo a 25 MiB e enfileira a mensagem apenas em RAM. Ele devolve HTTP 202 quando a fila a recebeu; o coletor então termina sem aguardar o resultado Rspamd.
-6. Dois workers consultam Rspamd em `127.0.0.1:11333/checkv2` com `Flags: no_log`. Eles registram somente ID de fila do MTA, tamanho, score, ação, símbolos e tempos. Nenhuma ação volta ao Exim/Postfix, SPFBL, reputação ou P2P.
-
-O Exim pode aguardar o upload da cópia depois do aceite SMTP, mas não espera a classificação e não depende dela para entregar a mensagem. Se o gateway estiver cheio, indisponível ou a mensagem exceder 25 MiB, o coletor registra o motivo, retorna sucesso ao Exim e deixa a entrega original seguir. A cópia `unseen` não é repetida se falhar; isso é apropriado ao piloto MONITOR. Mensagens aguardando análise podem ser perdidas quando a VM reiniciar porque a fila central é volátil e não armazena corpos em disco.
-
-O gateway comporta quatro mensagens aguardando e dois workers, com no máximo duas cargas simultâneas. O limite systemd é 384 MiB. A configuração atual do Rspamd limita tarefas a 25 MiB, tem dois workers e timeout de 12 segundos. A análise Bayes não se autotreina: rótulos SPAM/HAM continuam reservados a revisão explícita de operador.
-
-## Preparar a VM central
-
-Com Rspamd/Redis locais ativos em Ubuntu 24.04, instale o gateway como root:
+Requisitos: Ubuntu 24.04, core SPFBL nativo ativo, Nginx funcional para `matrix.hadcloud.srv.br` e `/etc/had-antispam/allowed-cpanels.txt` contendo os IPs públicos dos MTAs.
 
 ```bash
-bash packaging/content-scan/install-gateway.sh
+cd /caminho/do/SPFBL
+bash packaging/rspamd/install-spamfox-rspamd.sh install
 ```
 
-O instalador adiciona uma rota exata HTTPS no vhost existente `matrix.hadcloud.srv.br`, cria um serviço preso a loopback e gera o `allow/deny` Nginx da allowlist `/etc/had-antispam/allowed-cpanels.txt`. Não abre porta, reinicia o core SPFBL nem altera Exim/Postfix. O código de API armazena somente hashes de tokens; o token em texto aparece uma vez ao cadastrar cada MTA.
+O instalador configura Rspamd + Redis no loopback, instala o gateway em `127.0.0.1:11335`, adiciona a rota Nginx e valida `rspamadm configtest`, Nginx e systemd.
 
-Para criar uma credencial individual, depois de cadastrar o IP de saída no core/allowlist:
+## Rota HTTPS e Nginx
+
+| Rota | Destino | Acesso |
+|---|---|---|
+| `POST /internal/sfox/scan` | `127.0.0.1:11335/v1/scan` | Apenas IPs em `allowed-cpanels.txt` |
+| `/` em `matrix.hadcloud.srv.br` | painel SPFBL em `127.0.0.1:8080` | HTTPS público, raiz redireciona para `/pt/` |
+| `https://antispam.hadcloud.srv.br/` | WebUI Rspamd | conforme autenticação do vhost |
+
+O snippet `packaging/content-scan/had-sfox-scan-location.conf` contém os limites de corpo, timeouts e `proxy_request_buffering off`. O vhost principal está em `packaging/native/nginx-matrix.conf` e inclui o snippet no servidor HTTPS de `matrix.hadcloud.srv.br`.
+
+## Clientes e aprendizagem
+
+A admissão ocorre por IP: o gateway cruza o IP remoto com a allowlist usada pelo SPFBL. Não há ID de cPanel, token ou credencial por MTA. Para criar um perfil explícito e sincronizar Nginx:
 
 ```bash
-had-content-scan-clients add valinor --cidr 177.39.18.101/32
-```
-
-Copie o token exibido diretamente ao cPanel autorizado por um canal seguro. Ao cadastrar novo cPanel, sincronize a allowlist Nginx depois de atualizar a lista do core:
-
-```bash
+had-content-scan-clients add --cidr IP_PUBLICO/32
 had-content-scan-sync-allowlist
 nginx -t && systemctl reload nginx
 ```
 
-Revogue um cliente sem tocar no core SPFBL:
+O Rspamd aprende somente amostras elegíveis e de alta confiança. Quando o perfil habilita feedback SPFBL e existe ticket válido, o gateway pode emitir `SPAM <ticket>` ao core; ele envia ticket, não corpo, assunto ou score. A análise posterior não bloqueia a primeira mensagem: ela melhora classificação e reputação das próximas.
+
+## Operação
 
 ```bash
-had-content-scan-clients disable valinor
+systemctl status rspamd redis-server had-content-scan-gateway
+journalctl -u had-content-scan-gateway -f
 ```
 
-## Instalar no cPanel/Exim
-
-O pacote de cPanel leva somente `scan_client.py`, o hook e o instalador. Antes de emitir uma credencial, configure `system_filter_pipe_transport = address_pipe` em WHM → Service Configuration → Exim Configuration Manager → Advanced Editor → Add additional configuration setting e salve para reconstruir o Exim. Confirme o transporte e execute o preflight sem token:
-
-```bash
-/usr/sbin/exim -bP system_filter_pipe_transport system_filter_user system_filter_group
-bash install-content-scan.sh --client-id valinor --check
-```
-
-Só depois do preflight passar, crie a credencial individual na VM conforme a seção anterior. No cPanel, guarde o token num arquivo root-only sem colocá-lo no histórico do shell:
-
-```bash
-read -r -s -p 'Token do gateway: ' HAD_SCAN_TOKEN
-printf '\n'
-umask 077
-printf '%s' "$HAD_SCAN_TOKEN" > /root/had-content-scan.token
-unset HAD_SCAN_TOKEN
-```
-
-Instale como root:
-
-```bash
-bash install-content-scan.sh --client-id valinor --token-file /root/had-content-scan.token
-```
-
-O instalador não edita manualmente `/etc/exim.conf`; ele verifica o transporte e confirma que a conta/grupo do system filter consegue ler o token e obter o lock. A credencial fica em `/etc/had-content-scan/client.json`, root + grupo do filtro, modo `0640`; o cliente e o hook são executados com o usuário do system filter configurado no cPanel. O hook usa a pasta suportada `/usr/local/cpanel/etc/exim/sysfilter/options/`, sem substituir o filtro global.
-
-Para verificar:
-
-```bash
-journalctl -u exim --since '10 minutes ago' --no-pager | grep 'had-content-scan'
-grep 'had-content-scan' /var/log/exim_mainlog | tail -n 20
-```
-
-Os eventos esperados são `upload_queued`, `upload_skipped` ou `request_dropped` no log local, e `message_queued`, `scan_complete` ou `scan_failed` no journal do gateway central. O log nunca inclui assunto, remetente, destinatário ou corpo.
-
-## Limites do estágio
-
-- O gateway está instalado na VM e passou por um smoke com mensagem sintética no Rspamd; o hook e o cliente ainda precisam de smoke em um cPanel de homologação antes de ativar nos demais servidores.
-- A verificação não envia assunto, corpo ou anexos ao Jev/OpenRouter; conteúdo vai somente à VM HAD para Rspamd.
-- O resultado ainda é observabilidade MONITOR. Marcação, quarentena, rejeição, UI e fluxo de revisão/treinamento não fazem parte desta integração.
-- Postfix ainda precisa de um filtro after-queue próprio que preserve a entrega original; não execute o cliente como transport final sem reinjetar a mensagem.
+A WebUI nativa do Rspamd é o local para analisar e ensinar manualmente arquivos `.eml`. Os corpos enviados pelo gateway não são persistidos pelo gateway depois da análise.

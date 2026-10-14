@@ -1,0 +1,23 @@
+[Unit]
+Description=Create a private Redis RDB backup for the Rspamd Bayes model
+After=redis-server.service
+Requires=redis-server.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+Nice=10
+TimeoutStartSec=5min
+ExecStart=/usr/local/sbin/had-rspamd-redis-backup backup --backup-root /var/backups/had-antispam/rspamd/redis --retention-days 30
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+PrivateDevices=yes
+ReadWritePaths=/var/backups/had-antispam/rspamd/redis
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

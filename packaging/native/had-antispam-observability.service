@@ -1,0 +1,27 @@
+[Unit]
+Description=HAD AntiSpam loopback health and metrics
+After=network.target had-antispam-core.service
+
+[Service]
+Type=simple
+User=hadantispam
+Group=hadantispam
+WorkingDirectory=/opt/spfbl
+Environment=HOME=/var/lib/had-antispam
+Environment=HAD_ANTISPAM_OBSERVABILITY_PORT=9911
+ExecStart=/usr/bin/python3 /opt/spfbl/current/observability.py
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

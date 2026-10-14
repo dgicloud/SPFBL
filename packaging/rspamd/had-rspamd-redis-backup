@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /usr/bin/python3 /usr/local/lib/had-content-scan/redis_model_backup.py "$@"

@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
-"""Create or disable per-MTA bearer credentials for the scan gateway."""
+"""Authorize or disable per-MTA source-IP profiles for the scan gateway."""
 
 from __future__ import print_function
 
 import argparse
-import hashlib
 import ipaddress
 import json
 import os
 import re
-import secrets
 import tempfile
 
 CLIENT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
@@ -34,7 +32,7 @@ def _cidrs_allowed(requested, allowlist):
     for candidate in requested:
         if not any(candidate.version == parent.version and candidate.subnet_of(parent)
                    for parent in allowlist):
-            raise ValueError("CIDR is not covered by the cPanel allowlist: " + str(candidate))
+            raise ValueError("CIDR is not covered by the MTA allowlist: " + str(candidate))
 
 
 def _atomic_write(path, config):
@@ -65,12 +63,21 @@ def _atomic_write(path, config):
             os.unlink(temporary)
 
 
-def add_client(config_path, allowlist_path, client_id, cidr_values, rotate=False):
-    if not CLIENT_ID_RE.fullmatch(client_id):
-        raise ValueError("client id must use lowercase letters, numbers, dot, underscore or hyphen")
+def _profile_id_for_cidrs(requested):
+    network = requested[0]
+    address = str(network.network_address).replace(".", "-").replace(":", "-")
+    suffix = "" if len(requested) == 1 else "-plus-{0}".format(len(requested) - 1)
+    return "ip-{0}-{1}{2}".format(address, network.prefixlen, suffix)
+
+
+def add_client(config_path, allowlist_path, client_id, cidr_values, replace=False,
+               autolearn_enabled=True, spfbl_feedback_enabled=False):
     requested = [ipaddress.ip_network(value, strict=False) for value in cidr_values]
     if not requested or any(item.prefixlen == 0 for item in requested):
         raise ValueError("provide at least one specific source CIDR; /0 is not allowed")
+    client_id = client_id or _profile_id_for_cidrs(requested)
+    if not CLIENT_ID_RE.fullmatch(client_id):
+        raise ValueError("profile name must use lowercase letters, numbers, dot, underscore or hyphen")
     _cidrs_allowed(requested, _read_allowlist(allowlist_path))
     if os.path.exists(config_path):
         with open(config_path, "r") as stream:
@@ -78,16 +85,27 @@ def add_client(config_path, allowlist_path, client_id, cidr_values, rotate=False
     else:
         config = {"clients": {}}
     clients = config.setdefault("clients", {})
-    if client_id in clients and not rotate:
-        raise ValueError("client already exists; use --rotate to replace its credential")
-    token = secrets.token_urlsafe(32)
+    if client_id in clients and not replace:
+        raise ValueError("profile already exists; it is already registered")
+    for existing_id, existing in clients.items():
+        if existing_id == client_id or not isinstance(existing, dict):
+            continue
+        for raw_network in existing.get("allowed_cidrs", []):
+            try:
+                current = ipaddress.ip_network(raw_network, strict=False)
+            except (TypeError, ValueError):
+                continue
+            if any(candidate.version == current.version and candidate.overlaps(current)
+                   for candidate in requested):
+                raise ValueError("source CIDR overlaps profile {0}; use one profile per server IP".format(existing_id))
     clients[client_id] = {
-        "token_sha256": hashlib.sha256(token.encode("ascii")).hexdigest(),
         "allowed_cidrs": sorted(set(str(item) for item in requested)),
         "enabled": True,
+        "autolearn_enabled": bool(autolearn_enabled),
+        "spfbl_feedback_enabled": bool(spfbl_feedback_enabled),
     }
     _atomic_write(config_path, config)
-    return token
+    return client_id
 
 
 def disable_client(config_path, client_id):
@@ -100,32 +118,86 @@ def disable_client(config_path, client_id):
     _atomic_write(config_path, config)
 
 
+def set_autolearn(config_path, client_id, enabled):
+    with open(config_path, "r") as stream:
+        config = json.load(stream)
+    client = config.get("clients", {}).get(client_id)
+    if not isinstance(client, dict):
+        raise ValueError("client does not exist")
+    if enabled and client.get("enabled", True) is not True:
+        raise ValueError("cannot enable autolearn for a disabled client")
+    client["autolearn_enabled"] = bool(enabled)
+    _atomic_write(config_path, config)
+
+
+def set_spfbl_feedback(config_path, client_id, enabled):
+    with open(config_path, "r") as stream:
+        config = json.load(stream)
+    client = config.get("clients", {}).get(client_id)
+    if not isinstance(client, dict):
+        raise ValueError("client does not exist")
+    if enabled and client.get("enabled", True) is not True:
+        raise ValueError("cannot enable SPFBL feedback for a disabled client")
+    if enabled and client.get("autolearn_enabled") is not True:
+        raise ValueError("enable native Rspamd autolearn before SPFBL feedback")
+    client["spfbl_feedback_enabled"] = bool(enabled)
+    _atomic_write(config_path, config)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default=DEFAULT_CONFIG)
     parser.add_argument("--allowlist", default=DEFAULT_ALLOWLIST)
     commands = parser.add_subparsers(dest="command")
-    add = commands.add_parser("add", help="create a one-time token for a MTA host")
-    add.add_argument("client_id")
+    add = commands.add_parser("add", help="authorize one MTA source IP")
+    add.add_argument("client_id", nargs="?", help="optional internal profile name; defaults to one derived from the IP")
     add.add_argument("--cidr", action="append", required=True)
-    add.add_argument("--rotate", action="store_true")
-    disable = commands.add_parser("disable", help="revoke a MTA host token")
+    add.add_argument("--replace", action="store_true",
+                     help="replace an existing profile with the same internal name")
+    learning = add.add_mutually_exclusive_group()
+    learning.add_argument("--autolearn", dest="autolearn", action="store_true",
+                          help="enable conservative native Bayes autolearn (default)")
+    learning.add_argument("--no-autolearn", dest="autolearn", action="store_false",
+                          help="disable Bayes autolearn for this profile")
+    add.set_defaults(autolearn=True)
+    add.add_argument("--spfbl-feedback", action="store_true",
+                     help="envia feedback SPAM de alta confiança ao ticket SPFBL correspondente")
+    disable = commands.add_parser("disable", help="disable a MTA source-IP profile")
     disable.add_argument("client_id")
+    autolearn = commands.add_parser("autolearn", help="enable or disable automatic Bayes learning for a client")
+    autolearn.add_argument("client_id")
+    learn_switch = autolearn.add_mutually_exclusive_group(required=True)
+    learn_switch.add_argument("--enable", action="store_true")
+    learn_switch.add_argument("--disable", action="store_true")
+    feedback = commands.add_parser("spfbl-feedback", help="enable or disable high-confidence SPAM feedback to SPFBL")
+    feedback.add_argument("client_id")
+    feedback_switch = feedback.add_mutually_exclusive_group(required=True)
+    feedback_switch.add_argument("--enable", action="store_true")
+    feedback_switch.add_argument("--disable", action="store_true")
     args = parser.parse_args(argv)
     if args.command is None:
-        parser.error("choose add or disable")
+        parser.error("choose add, disable, autolearn or spfbl-feedback")
     if hasattr(os, "geteuid") and os.geteuid() != 0:
         parser.error("run as root")
     try:
         if args.command == "add":
-            token = add_client(args.config, args.allowlist, args.client_id,
-                               args.cidr, args.rotate)
-            print("client_id=" + args.client_id)
-            print("token=" + token)
-            print("The token is shown once. Copy it directly into the target MTA client config.")
-        else:
+            client_id = add_client(args.config, args.allowlist, args.client_id,
+                                   args.cidr, args.replace, args.autolearn,
+                                   args.spfbl_feedback)
+            print("profile=" + client_id)
+            print("authorized_cidrs=" + ",".join(args.cidr))
+            print("MTA admission uses the Nginx allowlist and this source CIDR; no client ID or token is installed on the MTA.")
+        elif args.command == "disable":
             disable_client(args.config, args.client_id)
             print("disabled=" + args.client_id)
+        elif args.command == "autolearn":
+            enabled = args.enable
+            set_autolearn(args.config, args.client_id, enabled)
+            print("autolearn_%s=%s" % ("enabled" if enabled else "disabled", args.client_id))
+        else:
+            enabled = args.enable
+            set_spfbl_feedback(args.config, args.client_id, enabled)
+            print("spfbl_feedback_%s=%s" % ("enabled" if enabled else "disabled", args.client_id))
     except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
         parser.error(str(exc))
     return 0

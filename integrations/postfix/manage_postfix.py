@@ -289,11 +289,84 @@ def validate_restriction_value(value, relay_value=None):
         raise ManagerError("Proteção de relay ausente da lista de destinatários")
 
 
-def config_bytes(server, port):
+def config_bytes(server, port, feedback_tickets=False):
     return (
         "# HAD AntiSpam Postfix integration; MONITOR only\n"
-        "SERVER={0}\nPORT={1}\nFAIL_OPEN=true\nMONITOR_MODE=true\n".format(server, port)
+        "SERVER={0}\nPORT={1}\nFAIL_OPEN=true\nMONITOR_MODE=true\n"
+        "SPFBL_FEEDBACK={2}\n".format(
+            server, port, "true" if feedback_tickets else "false")
     ).encode("ascii")
+
+
+def _set_config_boolean(data, key, enabled):
+    """Replace one managed boolean config key while preserving other settings."""
+    try:
+        text = data.decode("ascii")
+    except UnicodeDecodeError as exc:
+        raise ManagerError("client.conf contém bytes não ASCII") from exc
+    lines = text.splitlines(True)
+    matches = []
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        name, _value = stripped.split("=", 1)
+        if name.strip().upper() == key:
+            matches.append(index)
+    if len(matches) > 1:
+        raise ManagerError("client.conf contém opção duplicada: " + key)
+    value = "true" if enabled else "false"
+    if matches:
+        index = matches[0]
+        newline = "\r\n" if lines[index].endswith("\r\n") else "\n"
+        lines[index] = key + "=" + value + newline
+    else:
+        if lines and not lines[-1].endswith(("\n", "\r")):
+            lines[-1] += "\n"
+        lines.append(key + "=" + value + "\n")
+    return "".join(lines).encode("ascii")
+
+
+def set_feedback_tickets(paths=None, enabled=False, runner=run_command, preflight=True):
+    """Opt a running policy client into adding private SPFBL tickets to mail."""
+    paths = paths or Paths()
+    if preflight:
+        _ensure_root(paths)
+    with exclusive_lock(paths.lock):
+        manifest = _load_manifest(paths)
+        if manifest.get("status") != "installed":
+            raise ManagerError("Integração Postfix não está instalada")
+        config_info = manifest.get("files", {}).get("config", {})
+        current = read_optional(paths.client_conf)
+        if current is None or sha256(current) != config_info.get("installed_sha256"):
+            raise ManagerError("client.conf mudou fora do gerenciador; preservei sua configuração")
+        if enabled:
+            master = read_optional(paths.master) or b""
+            if (b"# BEGIN HAD-CONTENT-SCAN TRANSPORT" not in master
+                    or b"had-content-scan:dummy" not in master):
+                raise ManagerError(
+                    "instale e valide o transporte after-queue de conteúdo antes de ativar tickets SPFBL")
+
+        updated = _set_config_boolean(current, "SPFBL_FEEDBACK", enabled)
+        if updated == current:
+            return "SPFBL feedback " + ("enabled" if enabled else "disabled") + "; sem alteração"
+
+        previous_manifest = json.loads(json.dumps(manifest))
+        config_meta = metadata(paths.client_conf)
+        try:
+            atomic_write(paths.client_conf, updated, config_meta)
+            _run_check(paths, runner)
+            manifest["files"]["config"]["installed_sha256"] = sha256(updated)
+            _write_manifest(paths, manifest)
+        except Exception as exc:
+            try:
+                restore(paths.client_conf, current, config_meta)
+                _write_manifest(paths, previous_manifest)
+            except Exception as rollback_exc:
+                raise ManagerError(
+                    "alteração falhou ({0}); rollback incompleto ({1})".format(exc, rollback_exc))
+            raise ManagerError("alteração cancelada e revertida: " + str(exc))
+        return "SPFBL feedback " + ("enabled" if enabled else "disabled") + "; Postfix segue MONITOR/DUNNO"
 
 
 def _snapshot(paths, originals):
@@ -571,10 +644,13 @@ def healthcheck(paths=None, runner=run_command, preflight=True):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("validate", "install", "uninstall", "healthcheck"))
+    parser.add_argument("command", choices=("validate", "install", "uninstall", "healthcheck", "feedback"))
     parser.add_argument("--server", help="IP literal do endpoint SPFBL; use o loopback do túnel quando aplicável")
     parser.add_argument("--port", type=int, default=9877)
     parser.add_argument("--reload", action="store_true", help="recarrega Postfix após validação; instala sem reload por padrão")
+    feedback_switch = parser.add_mutually_exclusive_group()
+    feedback_switch.add_argument("--enable", action="store_true", help="habilita ticket de feedback após validar filtro de conteúdo")
+    feedback_switch.add_argument("--disable", action="store_true", help="desabilita a emissão de ticket de feedback")
     args = parser.parse_args(argv)
     paths = Paths()
     try:
@@ -584,6 +660,10 @@ def main(argv=None):
             print(install(paths, server=args.server, port=args.port, reload_postfix=args.reload))
         elif args.command == "uninstall":
             print(uninstall(paths, reload_postfix=args.reload))
+        elif args.command == "feedback":
+            if not args.enable and not args.disable:
+                parser.error("feedback exige --enable ou --disable")
+            print(set_feedback_tickets(paths, enabled=args.enable))
         else:
             print(healthcheck(paths))
         return 0

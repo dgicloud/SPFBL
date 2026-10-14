@@ -1045,7 +1045,7 @@ public final class ServerHTTP extends Server {
                             if (locale.getLanguage().toLowerCase().equals("pt")) {
                                 result = getMessageHMTL(
                                         locale,
-                                        "Página de erro do SPFBL",
+                                        "Página de erro do SpamFox",
                                         "O hostname deste sistema não foi definido no arquivo de configuração."
                                 );
                             } else {
@@ -1086,9 +1086,9 @@ public final class ServerHTTP extends Server {
                                     }
                                 } else {
                                     if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                        message = "Página principal do serviço SPFBL";
+                                        message = "Página principal do SpamFox";
                                     } else {
-                                        message = "This is SPFBL's main page";
+                                        message = "SpamFox reputation lookup";
                                     }
                                     result = getMainHTML(locale, message, remoteAddress);
                                 }
@@ -1108,9 +1108,9 @@ public final class ServerHTTP extends Server {
                                 } else if ((userLogin = User.get(userEmail)) == null) {
                                     String title;
                                     if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                        title = "Login do SPFBL";
+                                        title = "Login do SpamFox";
                                     } else {
-                                        title = "SPFBL Login";
+                                        title = "SpamFox Login";
                                     }
                                     String text;
                                     if (locale.getLanguage().toLowerCase().equals("pt")) {
@@ -1132,9 +1132,9 @@ public final class ServerHTTP extends Server {
                                             String tempoPunicao = getTempoPunicao(failTime);
                                             String title;
                                             if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                title = "Login do SPFBL";
+                                                title = "Login do SpamFox";
                                             } else {
-                                                title = "SPFBL Login";
+                                                title = "SpamFox Login";
                                             }
                                             String text;
                                             if (locale.getLanguage().toLowerCase().equals("pt")) {
@@ -1157,9 +1157,9 @@ public final class ServerHTTP extends Server {
                                             String tempoPunicao = getTempoPunicao(failTime);
                                             String title;
                                             if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                title = "Login do SPFBL";
+                                                title = "Login do SpamFox";
                                             } else {
-                                                title = "SPFBL Login";
+                                                title = "SpamFox Login";
                                             }
                                             String text;
                                             if (locale.getLanguage().toLowerCase().equals("pt")) {
@@ -1194,9 +1194,9 @@ public final class ServerHTTP extends Server {
                                     } else {
                                         String title;
                                         if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                            title = "Página de login do SPFBL";
+                                            title = "Página de login do SpamFox";
                                         } else {
-                                            title = "SPFBL login page";
+                                            title = "SpamFox login page";
                                         }
                                         String text;
                                         if (locale.getLanguage().toLowerCase().equals("pt")) {
@@ -1219,9 +1219,9 @@ public final class ServerHTTP extends Server {
                                             String tempoPunicao = getTempoPunicao(failTime);
                                             String title;
                                             if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                title = "Login do SPFBL";
+                                                title = "Login do SpamFox";
                                             } else {
-                                                title = "SPFBL Login";
+                                                title = "SpamFox Login";
                                             }
                                             String text;
                                             if (locale.getLanguage().toLowerCase().equals("pt")) {
@@ -1241,9 +1241,9 @@ public final class ServerHTTP extends Server {
                                         } else if (userLogin.hasPassword()) {
                                             String title;
                                             if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                title = "Página de login do SPFBL";
+                                                title = "Página de login do SpamFox";
                                             } else {
-                                                title = "SPFBL login page";
+                                                title = "SpamFox login page";
                                             }
                                             String text;
                                             if (locale.getLanguage().toLowerCase().equals("pt")) {
@@ -1255,9 +1255,9 @@ public final class ServerHTTP extends Server {
                                         } else if (userLogin.hasTransitionOTP()) {
                                             String title;
                                             if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                title = "Página de login do SPFBL";
+                                                title = "Página de login do SpamFox";
                                             } else {
-                                                title = "SPFBL login page";
+                                                title = "SpamFox login page";
                                             }
                                             if (userLogin.hasSecretOTP()) {
                                                 String text;
@@ -1320,9 +1320,9 @@ public final class ServerHTTP extends Server {
                                     } else {
                                         String title;
                                         if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                            title = "Página de login do SPFBL";
+                                            title = "Página de login do SpamFox";
                                         } else {
-                                            title = "SPFBL login page";
+                                            title = "SpamFox login page";
                                         }
                                         String text;
                                         if (locale.getLanguage().toLowerCase().equals("pt")) {
@@ -1341,9 +1341,9 @@ public final class ServerHTTP extends Server {
                                     if (valid == null) {
                                         String title;
                                         if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                            title = "Login do SPFBL";
+                                            title = "Login do SpamFox";
                                         } else {
-                                            title = "SPFBL Login";
+                                            title = "SpamFox Login";
                                         }
                                         String text;
                                         if (locale.getLanguage().toLowerCase().equals("pt")) {
@@ -1379,9 +1379,9 @@ public final class ServerHTTP extends Server {
                                         } else {
                                             String title;
                                             if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                title = "Login do SPFBL";
+                                                title = "Login do SpamFox";
                                             } else {
-                                                title = "SPFBL Login";
+                                                title = "SpamFox Login";
                                             }
                                             String text;
                                             if (locale.getLanguage().toLowerCase().equals("pt")) {
@@ -1830,9 +1830,9 @@ public final class ServerHTTP extends Server {
                                         if (System.currentTimeMillis() - timeKey > Server.WEEK_TIME) {
                                             String title;
                                             if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                title = "Página do SPFBL";
+                                                title = "Página do SpamFox";
                                             } else {
-                                                title = "SPFBL page";
+                                                title = "SpamFox page";
                                             }
                                             type = "text/html";
                                             tag = "HTTPC";
@@ -1888,9 +1888,9 @@ public final class ServerHTTP extends Server {
                                                 tag = "HTTPC";
                                                 String title;
                                                 if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                    title = "Página de denuncia SPFBL";
+                                                    title = "Página de denúncia SpamFox";
                                                 } else {
-                                                    title = "SPFBL complaint page";
+                                                    title = "SpamFox complaint page";
                                                 }
                                                 User userTicket = User.get(userEmail);
                                                 Query queryTicket = userTicket == null ? null : userTicket.getQuerySafe(timeKey);
@@ -2032,9 +2032,9 @@ public final class ServerHTTP extends Server {
                                             } else if (operator.equals("unblock") || operator.equals("delist")) {
                                                 String title;
                                                 if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                    title = "Página de desbloqueio do SPFBL";
+                                                    title = "Página de desbloqueio do SpamFox";
                                                 } else {
-                                                    title = "SPFBL unblock page";
+                                                    title = "SpamFox unblock page";
                                                 }
                                                 try {
                                                     Boolean valid = validCaptcha(parameterMap);
@@ -2292,9 +2292,9 @@ public final class ServerHTTP extends Server {
                                             } else if (operator.equals("holding")) {
                                                 String title;
                                                 if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                    title = "Página de liberação do SPFBL";
+                                                    title = "Página de liberação do SpamFox";
                                                 } else {
-                                                    title = "SPFBL release page";
+                                                    title = "SpamFox release page";
                                                 }
                                                 try {
                                                     Boolean valid = validCaptcha(parameterMap);
@@ -2416,9 +2416,9 @@ public final class ServerHTTP extends Server {
                                             } else if (operator.equals("unholdadmin")) {
                                                 String title;
                                                 if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                    title = "Página de liberação do SPFBL";
+                                                    title = "Página de liberação do SpamFox";
                                                 } else {
-                                                    title = "SPFBL release page";
+                                                    title = "SpamFox release page";
                                                 }
                                                 try {
                                                     String email = tokenizer.nextToken();
@@ -2476,9 +2476,9 @@ public final class ServerHTTP extends Server {
                                             } else if (operator.equals("unhold")) {
                                                 String title;
                                                 if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                    title = "Página de liberação do SPFBL";
+                                                    title = "Página de liberação do SpamFox";
                                                 } else {
-                                                    title = "SPFBL release page";
+                                                    title = "SpamFox release page";
                                                 }
                                                 try {
                                                     String email = tokenizer.nextToken();
@@ -2595,9 +2595,9 @@ public final class ServerHTTP extends Server {
                                             } else if (operator.equals("block") || operator.equals("ban") || operator.equals("bansubject")) {
                                                 String title;
                                                 if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                    title = "Página de bloqueio do SPFBL";
+                                                    title = "Página de bloqueio do SpamFox";
                                                 } else {
-                                                    title = "SPFBL block page";
+                                                    title = "SpamFox block page";
                                                 }
                                                 try {
                                                     String email = tokenizer.nextToken();
@@ -2776,9 +2776,9 @@ public final class ServerHTTP extends Server {
                                             } else if (operator.equals("unsubscribe")) {
                                                 String title;
                                                 if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                    title = "Página de cancelamento do SPFBL";
+                                                    title = "Página de cancelamento do SpamFox";
                                                 } else {
-                                                    title = "SPFBL unsubscribe page";
+                                                    title = "SpamFox unsubscribe page";
                                                 }
                                                 try {
                                                     Boolean valid = validCaptcha(parameterMap);
@@ -2789,11 +2789,11 @@ public final class ServerHTTP extends Server {
                                                         String message;
                                                         String text;
                                                         if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                            message = "Cancelamento de alertas do SPFBL";
+                                                            message = "Cancelamento de alertas do SpamFox";
                                                             text = "Houve uma falha na validação do reCAPTCHA. "
                                                                     + "Tente novamente.";
                                                         } else {
-                                                            message = "Unsubscribing SPFBL alerts.";
+                                                            message = "Unsubscribing SpamFox alerts.";
                                                             text = "reCAPTCHA validation failed. "
                                                                     + "Try again.";
                                                         }
@@ -2830,10 +2830,10 @@ public final class ServerHTTP extends Server {
                                                         String message;
                                                         String text;
                                                         if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                            message = "Cancelamento de alertas do SPFBL";
+                                                            message = "Cancelamento de alertas do SpamFox";
                                                             text = "O desafio reCAPTCHA não foi resolvido. Tente novamente.";
                                                         } else {
-                                                            message = "Unsubscribing SPFBL alerts.";
+                                                            message = "Unsubscribing SpamFox alerts.";
                                                             text = "The reCAPTCHA challenge was not resolved. Try again.";
                                                         }
                                                         result = getUnsubscribeHMTL(locale, message, text);
@@ -2847,9 +2847,9 @@ public final class ServerHTTP extends Server {
                                             } else if (operator.equals("release")) {
                                                 String title;
                                                 if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                    title = "Página de liberação do SPFBL";
+                                                    title = "Página de liberação do SpamFox";
                                                 } else {
-                                                    title = "SPFBL release page";
+                                                    title = "SpamFox release page";
                                                 }
                                                 try {
                                                     Boolean valid = validCaptcha(parameterMap);
@@ -3054,9 +3054,9 @@ public final class ServerHTTP extends Server {
                                 code = 200;
                                 String message;
                                 if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                    message = "Página principal do serviço SPFBL";
+                                    message = "Página principal do SpamFox";
                                 } else {
-                                    message = "This is SPFBL's main page";
+                                    message = "SpamFox reputation lookup";
                                 }
                                 result = getMainHTML(locale, message, remoteAddress);
                             } else if (command.equals("/history/")) {
@@ -3399,9 +3399,9 @@ public final class ServerHTTP extends Server {
                                 } else if ((userLogin = User.get(userEmail)) == null) {
                                     String title;
                                     if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                        title = "Login do SPFBL";
+                                        title = "Login do SpamFox";
                                     } else {
-                                        title = "SPFBL Login";
+                                        title = "SpamFox Login";
                                     }
                                     String text;
                                     if (locale.getLanguage().toLowerCase().equals("pt")) {
@@ -3416,9 +3416,9 @@ public final class ServerHTTP extends Server {
                                     String tempoPunicao = getTempoPunicao(failTime);
                                     String title;
                                     if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                        title = "Login do SPFBL";
+                                        title = "Login do SpamFox";
                                     } else {
-                                        title = "SPFBL Login";
+                                        title = "SpamFox Login";
                                     }
                                     String text;
                                     if (locale.getLanguage().toLowerCase().equals("pt")) {
@@ -3441,9 +3441,9 @@ public final class ServerHTTP extends Server {
                                     String tempoPunicao = getTempoPunicao(failTime);
                                     String title;
                                     if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                        title = "Login do SPFBL";
+                                        title = "Login do SpamFox";
                                     } else {
-                                        title = "SPFBL Login";
+                                        title = "SpamFox Login";
                                     }
                                     String text;
                                     if (locale.getLanguage().toLowerCase().equals("pt")) {
@@ -3463,9 +3463,9 @@ public final class ServerHTTP extends Server {
                                 } else if (userLogin.hasPassword()) {
                                     String title;
                                     if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                        title = "Página de login do SPFBL";
+                                        title = "Página de login do SpamFox";
                                     } else {
-                                        title = "SPFBL login page";
+                                        title = "SpamFox login page";
                                     }
                                     String text;
                                     if (locale.getLanguage().toLowerCase().equals("pt")) {
@@ -3477,9 +3477,9 @@ public final class ServerHTTP extends Server {
                                 } else if (userLogin.hasTransitionOTP()) {
                                     String title;
                                     if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                        title = "Página de login do SPFBL";
+                                        title = "Página de login do SpamFox";
                                     } else {
-                                        title = "SPFBL login page";
+                                        title = "SpamFox login page";
                                     }
                                     if (userLogin.hasSecretOTP()) {
                                         String text;
@@ -3509,9 +3509,9 @@ public final class ServerHTTP extends Server {
                                 } else if (userLogin.hasSecretOTP()) {
                                     String title;
                                     if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                        title = "Página de login do SPFBL";
+                                        title = "Página de login do SpamFox";
                                     } else {
-                                        title = "SPFBL login page";
+                                        title = "SpamFox login page";
                                     }
                                     String text;
                                     if (locale.getLanguage().toLowerCase().equals("pt")) {
@@ -3590,6 +3590,8 @@ public final class ServerHTTP extends Server {
                                     type = "image/x-icon";
                                 } else if (file.getName().endsWith(".css")) {
                                     type = "text/css";
+                                } else if (file.getName().endsWith(".js")) {
+                                    type = "text/javascript; charset=UTF-8";
                                 } else if (file.getName().endsWith(".txt")) {
                                     type = "text/plain";
                                 } else {
@@ -3609,7 +3611,12 @@ public final class ServerHTTP extends Server {
                                         code = 200;
                                         Headers headers = exchange.getResponseHeaders();
                                         headers.set("Content-Type", type);
-                                        headers.set("Cache-Control", "public, min-fresh=86400, max-age=604800"); // HTTP 1.1.
+                                        headers.set(
+                                                "Cache-Control",
+                                                file.getName().endsWith(".js")
+                                                        ? "public, max-age=300"
+                                                        : "public, min-fresh=86400, max-age=604800"
+                                        ); // HTTP 1.1.
                                         headers.set("Last-Modified", Core.formatEmailDate(file.lastModified()));
                                         exchange.sendResponseHeaders(200, file.length());
                                         try (OutputStream outputStream = exchange.getResponseBody()) {
@@ -3772,9 +3779,9 @@ public final class ServerHTTP extends Server {
                                         if (System.currentTimeMillis() - date > Server.WEEK_TIME) {
                                             String title;
                                             if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                title = "Página do SPFBL";
+                                                title = "Página do SpamFox";
                                             } else {
-                                                title = "SPFBL page";
+                                                title = "SpamFox page";
                                             }
                                             type = "text/html";
                                             tag = "HTTPC";
@@ -3827,9 +3834,9 @@ public final class ServerHTTP extends Server {
                                                 tag = "HTTPC";
                                                 String title;
                                                 if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                    title = "Página de denuncia SPFBL";
+                                                    title = "Página de denúncia SpamFox";
                                                 } else {
-                                                    title = "SPFBL complaint page";
+                                                    title = "SpamFox complaint page";
                                                 }
                                                 User userTicket = User.get(userEmail);
                                                 Query queryTicket = userTicket == null ? null : userTicket.getQuerySafe(date);
@@ -3946,9 +3953,9 @@ public final class ServerHTTP extends Server {
                                             code = 200;
                                             String title;
                                             if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                title = "Página de desbloqueio do SPFBL";
+                                                title = "Página de desbloqueio do SpamFox";
                                             } else {
-                                                title = "SPFBL unblock page";
+                                                title = "SpamFox unblock page";
                                             }
                                             try {
                                                 String paypal_user = Core.getPayPalAccountUser();
@@ -4130,9 +4137,9 @@ public final class ServerHTTP extends Server {
                                         } else if (operator.equals("unblock") || operator.equals("delist")) {
                                             String title;
                                             if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                title = "Página de desbloqueio do SPFBL";
+                                                title = "Página de desbloqueio do SpamFox";
                                             } else {
-                                                title = "SPFBL unblock page";
+                                                title = "SpamFox unblock page";
                                             }
                                             try {
                                                 String clientTicket = tokenizer.nextToken();
@@ -4280,9 +4287,9 @@ public final class ServerHTTP extends Server {
                                         } else if (operator.equals("holding")) {
                                             String title;
                                             if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                title = "Página de liberação do SPFBL";
+                                                title = "Página de liberação do SpamFox";
                                             } else {
-                                                title = "SPFBL release page";
+                                                title = "SpamFox release page";
                                             }
                                             String email = tokenizer.nextToken();
                                             User userLocal = User.get(email);
@@ -4359,9 +4366,9 @@ public final class ServerHTTP extends Server {
                                         } else if (operator.equals("unholdadmin")) {
                                             String title;
                                             if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                title = "Página de liberação do SPFBL";
+                                                title = "Página de liberação do SpamFox";
                                             } else {
-                                                title = "SPFBL release page";
+                                                title = "SpamFox release page";
                                             }
                                             try {
                                                 String email = tokenizer.nextToken();
@@ -4447,9 +4454,9 @@ public final class ServerHTTP extends Server {
                                         } else if (operator.equals("unhold")) {
                                             String title;
                                             if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                title = "Página de liberação do SPFBL";
+                                                title = "Página de liberação do SpamFox";
                                             } else {
-                                                title = "SPFBL release page";
+                                                title = "SpamFox release page";
                                             }
                                             String email = tokenizer.nextToken();
                                             Query queryLocal;
@@ -4547,9 +4554,9 @@ public final class ServerHTTP extends Server {
                                         } else if (operator.equals("block") || operator.equals("ban") || operator.equals("bansubject")) {
                                             String title;
                                             if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                title = "Página de bloqueio do SPFBL";
+                                                title = "Página de bloqueio do SpamFox";
                                             } else {
-                                                title = "SPFBL block page";
+                                                title = "SpamFox block page";
                                             }
                                             String email = tokenizer.nextToken();
                                             Query queryLocal;
@@ -4697,20 +4704,20 @@ public final class ServerHTTP extends Server {
                                                 if (NoReply.isUnsubscribed(email)) {
                                                     String title;
                                                     if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                        title = "Página de cancelamento do SPFBL";
+                                                        title = "Página de cancelamento do SpamFox";
                                                         message = "O sistema de alerta já estava cancelado para " + email + ".";
                                                     } else {
-                                                        title = "SPFBL unsubscribe page";
+                                                        title = "SpamFox unsubscribe page";
                                                         message = "The warning system was already unsubscribed for " + email + ".";
                                                     }
                                                     result = getMessageHMTL(locale, title, message);
                                                 } else {
                                                     if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                        message = "Cancelamento de alertas do SPFBL";
+                                                        message = "Cancelamento de alertas do SpamFox";
                                                         text = "O cancelamento de alertas pode prejudicar a interação com este sistema.\n"
                                                                 + "Se tiver certeza que quer cancelar estes alertas para " + email + ", resolva o reCAPTCHA:";
                                                     } else {
-                                                        message = "Unsubscribing SPFBL alerts.";
+                                                        message = "Unsubscribing SpamFox alerts.";
                                                         text = "Canceling alerts can impair interaction with this system.\n"
                                                                 + "If you are sure you want to cancel these alerts for " + email + ", resolve reCAPTCHA:";
                                                     }
@@ -4725,9 +4732,9 @@ public final class ServerHTTP extends Server {
                                         } else if (operator.equals("release")) {
                                             String title;
                                             if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                title = "Página de liberação do SPFBL";
+                                                title = "Página de liberação do SpamFox";
                                             } else {
-                                                title = "SPFBL release page";
+                                                title = "SpamFox release page";
                                             }
                                             try {
                                                 String id = tokenizer.nextToken();
@@ -4785,9 +4792,9 @@ public final class ServerHTTP extends Server {
                                         } else if (operator.equals("white")) {
                                             String title;
                                             if (locale.getLanguage().toLowerCase().equals("pt")) {
-                                                title = "Página de desbloqueio do SPFBL";
+                                                title = "Página de desbloqueio do SpamFox";
                                             } else {
-                                                title = "SPFBL unblock page";
+                                                title = "SpamFox unblock page";
                                             }
                                             try {
                                                 String white = White.normalizeTokenWhite(tokenizer.nextToken());
@@ -5378,9 +5385,9 @@ public final class ServerHTTP extends Server {
                 message.addRecipients(Message.RecipientType.TO, recipients);
                 String subject;
                 if (locale.getLanguage().toLowerCase().equals("pt")) {
-                    subject = "Chave de delist SPFBL para o IP " + ip;
+                    subject = "Chave de delist SpamFox para o IP " + ip;
                 } else {
-                    subject = "SPFBL delist key for IP " + ip;
+                    subject = "SpamFox delist key for IP " + ip;
                 }
                 message.setSubject(subject);
                 // Corpo da mensagem.
@@ -5518,9 +5525,9 @@ public final class ServerHTTP extends Server {
                 message.addRecipients(Message.RecipientType.TO, recipients);
                 String subject;
                 if (locale.getLanguage().toLowerCase().equals("pt")) {
-                    subject = "Chave TOTP do SPFBL";
+                    subject = "Chave TOTP do SpamFox";
                 } else {
-                    subject = "SPFBL TOTP key";
+                    subject = "SpamFox TOTP key";
                 }
                 message.setSubject(subject);
                 // Corpo da mensagem.
@@ -5542,7 +5549,7 @@ public final class ServerHTTP extends Server {
                 builder.append("        <img src=\"cid:logo\">\n");
                 builder.append("      </div>\n");
                 if (locale.getLanguage().toLowerCase().equals("pt")) {
-                    buildMessage(builder, "Sua chave <a target=\"_blank\" href=\"http://spfbl.net/totp/\">TOTP</a> no sistema SPFBL em " + Core.getHostname());
+                    buildMessage(builder, "Sua chave <a target=\"_blank\" href=\"http://spfbl.net/totp/\">TOTP</a> no sistema SpamFox, baseado no SPFBL, em " + Core.getHostname());
                     buildText(builder, "Carregue o QRCode abaixo em seu Google Authenticator ou em outro aplicativo <a target=\"_blank\" href=\"http://spfbl.net/totp/\">TOTP</a> de sua preferência.");
                     builder.append("      <div id=\"divcaptcha\">\n");
                     builder.append("        <img src=\"cid:qrcode\"><br>\n");
@@ -5551,7 +5558,7 @@ public final class ServerHTTP extends Server {
                     builder.append("\n");
                     builder.append("      </div>\n");
                 } else {
-                    buildMessage(builder, "Your <a target=\"_blank\" href=\"http://spfbl.net/en/totp/\">TOTP</a> key in SPFBL system at " + Core.getHostname());
+                    buildMessage(builder, "Your <a target=\"_blank\" href=\"http://spfbl.net/en/totp/\">TOTP</a> key in SpamFox, based on SPFBL, at " + Core.getHostname());
                     buildText(builder, "Load QRCode below on your Google Authenticator or on other application <a target=\"_blank\" href=\"http://spfbl.net/en/totp/\">TOTP</a> of your choice.");
                     builder.append("      <div id=\"divcaptcha\">\n");
                     builder.append("        <img src=\"cid:qrcode\"><br>\n");
@@ -5660,9 +5667,9 @@ public final class ServerHTTP extends Server {
                 message.addRecipients(Message.RecipientType.TO, recipients);
                 String subject;
                 if (locale.getLanguage().toLowerCase().equals("pt")) {
-                    subject = "Solicitação de envio SPFBL";
+                    subject = "Solicitação de envio SpamFox";
                 } else {
-                    subject = "SPFBL send request";
+                    subject = "SpamFox send request";
                 }
                 message.setSubject(subject);
                 // Corpo da mensagem.
@@ -5998,10 +6005,10 @@ public final class ServerHTTP extends Server {
         String title;
         String message;
         if (locale.getLanguage().toLowerCase().equals("pt")) {
-            title = "Página de desbloqueio do SPFBL";
+            title = "Página de desbloqueio do SpamFox";
             message = "A sua mensagem está sendo rejeitada por bloqueio manual";
         } else {
-            title = "SPFBL unlock page";
+            title = "SpamFox unlock page";
             message = "Your message is being rejected by manual block";
         }
         buildHead(true, builder, title);
@@ -6079,11 +6086,11 @@ public final class ServerHTTP extends Server {
         String title;
         String message;
         if (locale.getLanguage().toLowerCase().equals("pt")) {
-            title = "Página de desbloqueio do SPFBL";
-            message = "Este remetente foi bloqueado no sistema SPFBL";
+            title = "Página de desbloqueio do SpamFox";
+            message = "Este remetente foi bloqueado no SpamFox";
         } else {
-            title = "SPFBL unblock page";
-            message = "The sender has been blocked in SPFBL system";
+            title = "SpamFox unblock page";
+            message = "The sender has been blocked by SpamFox";
 
         }
         buildHead(false, builder, title);
@@ -6119,9 +6126,9 @@ public final class ServerHTTP extends Server {
         builder.append(locale.getLanguage());
         builder.append("\">\n");
         if (locale.getLanguage().toLowerCase().equals("pt")) {
-            buildHead(true, builder, "Página de login do SPFBL");
+            buildHead(true, builder, "Página de login do SpamFox");
         } else {
-            buildHead(true, builder, "SPFBL login page");
+            buildHead(true, builder, "SpamFox login page");
         }
         builder.append("  <body>\n");
         builder.append("    <div id=\"container\">\n");
@@ -6156,9 +6163,9 @@ public final class ServerHTTP extends Server {
         builder.append(locale.getLanguage());
         builder.append("\">\n");
         if (locale.getLanguage().toLowerCase().equals("pt")) {
-            buildHead(true, builder, "Página de login do SPFBL");
+            buildHead(true, builder, "Página de login do SpamFox");
         } else {
-            buildHead(true, builder, "SPFBL login page");
+            buildHead(true, builder, "SpamFox login page");
         }
         builder.append("  <body>\n");
         builder.append("    <div id=\"container\">\n");
@@ -6193,9 +6200,9 @@ public final class ServerHTTP extends Server {
         builder.append(locale.getLanguage());
         builder.append("\">\n");
         if (locale.getLanguage().toLowerCase().equals("pt")) {
-            buildHead(true, builder, "Página de login do SPFBL");
+            buildHead(true, builder, "Página de login do SpamFox");
         } else {
-            buildHead(true, builder, "SPFBL login page");
+            buildHead(true, builder, "SpamFox login page");
         }
         builder.append("  <body>\n");
         builder.append("    <div id=\"container\">\n");
@@ -6231,10 +6238,10 @@ public final class ServerHTTP extends Server {
         String title;
         String message;
         if (locale.getLanguage().toLowerCase().equals("pt")) {
-            title = "Página de liberação SPFBL";
+            title = "Página de liberação SpamFox";
             message = "O recebimento da sua mensagem está sendo atrasado por suspeita de SPAM";
         } else {
-            title = "SPFBL release page";
+            title = "SpamFox release page";
             message = "The receipt of your message is being delayed by SPAM suspect";
         }
         buildHead(true, builder, title);
@@ -6272,10 +6279,10 @@ public final class ServerHTTP extends Server {
         String title;
         String message;
         if (locale.getLanguage().toLowerCase().equals("pt")) {
-            title = "Página de liberação SPFBL";
+            title = "Página de liberação SpamFox";
             message = "A mensagem retida por suspeita de SPAM";
         } else {
-            title = "SPFBL release page";
+            title = "SpamFox release page";
             message = "The message retained on suspicion of SPAM";
         }
         buildHead(true, builder, title);
@@ -6313,10 +6320,10 @@ public final class ServerHTTP extends Server {
         String title;
         String message;
         if (locale.getLanguage().toLowerCase().equals("pt")) {
-            title = "Página de liberação SPFBL";
+            title = "Página de liberação SpamFox";
             message = "A mensagem retida por suspeita de SPAM";
         } else {
-            title = "SPFBL release page";
+            title = "SpamFox release page";
             message = "The message retained on suspicion of SPAM";
         }
         buildHead(false, builder, title);
@@ -6352,9 +6359,9 @@ public final class ServerHTTP extends Server {
         builder.append(locale.getLanguage());
         builder.append("\">\n");
         if (locale.getLanguage().toLowerCase().equals("pt")) {
-            buildHead(false, builder, "Página de bloqueio SPFBL");
+            buildHead(false, builder, "Página de bloqueio SpamFox");
         } else {
-            buildHead(false, builder, "SPFBL block page");
+            buildHead(false, builder, "SpamFox block page");
         }
         builder.append("  <body>\n");
         builder.append("    <div id=\"container\">\n");
@@ -6389,9 +6396,9 @@ public final class ServerHTTP extends Server {
         builder.append(locale.getLanguage());
         builder.append("\">\n");
         if (locale.getLanguage().toLowerCase().equals("pt")) {
-            buildHead(true, builder, "Página de cancelamento SPFBL");
+            buildHead(true, builder, "Página de cancelamento SpamFox");
         } else {
-            buildHead(true, builder, "SPFBL unsubscribe page");
+            buildHead(true, builder, "SpamFox unsubscribe page");
         }
         builder.append("  <body>\n");
         builder.append("    <div id=\"container\">\n");
@@ -7146,22 +7153,22 @@ public final class ServerHTTP extends Server {
                     if (blocked || reputationStatus == Status.RED) {
                         if (locale.getLanguage().toLowerCase().equals("pt")) {
                             buildText(builder, "Este IP " + (blocked ? "foi bloqueado" : "está listado") + " por má reputação com " + Core.PERCENT_FORMAT.format(reputationProbability) + " de pontos negativos.");
-                            buildText(builder, "Para que este IP possa ser removido desta lista, é necessário que o MTA de origem reduza o volume de envios para os destinatários com <a target=\"_blank\" href=\"http://spfbl.net/feedback/\">prefixo de rejeição SPFBL</a> na camada SMTP.");
+                            buildText(builder, "Para que este IP possa ser removido desta lista, é necessário que o MTA de origem reduza o volume de envios para os destinatários com <a target=\"_blank\" href=\"http://spfbl.net/feedback/\">prefixo de rejeição SpamFox</a> na camada SMTP.");
                             buildText(builder, "O intervalo de reputação é de sete dias, portanto, você deve aguardar esse intervalo após a interrupção de todos os abusos.");
                         } else {
                             buildText(builder, "This IP " + (blocked ? "was blocked" : "is listed") + " by bad reputation in " + Core.PERCENT_FORMAT.format(reputationProbability) + " of negative points.");
-                            buildText(builder, "In order for the IP to be removed from this list, the source MTA has to reduce the deliveries to customers who have complained, which have generated a <a target=\"_blank\" href=\"http://spfbl.net/en/feedback/\">SPFBL rejection prefix</a> at the SMTP layer.");
+                            buildText(builder, "In order for the IP to be removed from this list, the source MTA has to reduce the deliveries to customers who have complained, which have generated a <a target=\"_blank\" href=\"http://spfbl.net/en/feedback/\">SpamFox rejection prefix</a> at the SMTP layer.");
                             buildText(builder, "The reputation interval is seven days, so you should wait for this interval after all abuse has stopped.");
                         }
                     } else {
                         if (locale.getLanguage().toLowerCase().equals("pt")) {
                             buildText(builder, "Este IP não está listado neste sistema porém sua reputação está com " + Core.PERCENT_FORMAT.format(reputationProbability) + " de pontos negativos.");
                             buildText(builder, "Se esta reputação tiver aumento significativo na quantidade de pontos negativos, este IP será automaticamente listado neste sistema.");
-                            buildText(builder, "Para evitar que isto ocorra, reduza os envios com <a target=\"_blank\" href=\"http://spfbl.net/feedback/\">prefixo de rejeição SPFBL</a>.");
+                            buildText(builder, "Para evitar que isto ocorra, reduza os envios com <a target=\"_blank\" href=\"http://spfbl.net/feedback/\">prefixo de rejeição SpamFox</a>.");
                         } else {
                             buildText(builder, "This IP is not listed in this system but its reputation is with " + Core.PERCENT_FORMAT.format(reputationProbability) + " of negative points.");
                             buildText(builder, "If this reputation have significant increase in the number of negative points, this IP will automatically be listed in the system.");
-                            buildText(builder, "To prevent this from occurring, reduce sending with <a target=\"_blank\" href=\"http://spfbl.net/en/feedback/\">SPFBL rejection prefix</a>.");
+                            buildText(builder, "To prevent this from occurring, reduce sending with <a target=\"_blank\" href=\"http://spfbl.net/en/feedback/\">SpamFox rejection prefix</a>.");
                         }
                     }
                 } else if (emailMap.isEmpty()) {
@@ -7739,10 +7746,10 @@ public final class ServerHTTP extends Server {
                 boolean blocked = Block.containsDomain(domain, false);
                 if (locale.getLanguage().toLowerCase().equals("pt")) {
                     buildText(builder, "Este FQDN " + (blocked ? "foi bloqueado" : "está listado") + " por má reputação com " + Core.PERCENT_FORMAT.format(probability) + " de pontos negativos do volume total de envio.");
-                    buildText(builder, "Para que este FQDN possa ser removido desta lista, é necessário que todos os MTAs de origem reduzam o volume de envios para os destinatários com <a target=\"_blank\" href=\"http://spfbl.net/feedback/\">prefixo de rejeição SPFBL</a> na camada SMTP.");
+                    buildText(builder, "Para que este FQDN possa ser removido desta lista, é necessário que todos os MTAs de origem reduzam o volume de envios para os destinatários com <a target=\"_blank\" href=\"http://spfbl.net/feedback/\">prefixo de rejeição SpamFox</a> na camada SMTP.");
                 } else {
                     buildText(builder, "This FQDN " + (blocked ? "was blocked" : "is blacklisted") + " by bad reputation in " + Core.PERCENT_FORMAT.format(probability) + " of negative points of the total shipping volume.");
-                    buildText(builder, "In order for this FQDN to be removed from this list, it is necessary for all source MTAs to reduce the volume of submissions to recipients with <a target=\"_blank\" href=\"http://spfbl.net/en/feedback/\">SPFBL rejection prefix</a> in the SMTP layer.");
+                    buildText(builder, "In order for this FQDN to be removed from this list, it is necessary for all source MTAs to reduce the volume of submissions to recipients with <a target=\"_blank\" href=\"http://spfbl.net/en/feedback/\">SpamFox rejection prefix</a> in the SMTP layer.");
                 }
             } else if (White.containsHostname(domain)) {
                 if (locale.getLanguage().toLowerCase().equals("pt")) {
@@ -7761,10 +7768,10 @@ public final class ServerHTTP extends Server {
                 boolean blocked = Block.containsDomain(domain, false);
                 if (locale.getLanguage().toLowerCase().equals("pt")) {
                     buildText(builder, "O FQDN " + domain + " " + (blocked ? "foi bloqueado" : "está listado") + " por má reputação com " + Core.PERCENT_FORMAT.format(probability) + " de pontos negativos do volume total de envio.");
-                    buildText(builder, "Para que este FQDN possa ser removido desta lista, é necessário que todos os MTAs de origem reduzam o volume de envios para os destinatários com <a target=\"_blank\" href=\"http://spfbl.net/feedback/\">prefixo de rejeição SPFBL</a> na camada SMTP.");
+                    buildText(builder, "Para que este FQDN possa ser removido desta lista, é necessário que todos os MTAs de origem reduzam o volume de envios para os destinatários com <a target=\"_blank\" href=\"http://spfbl.net/feedback/\">prefixo de rejeição SpamFox</a> na camada SMTP.");
                 } else {
                     buildText(builder, "The FQDN " + domain + " " + (blocked ? "was blocked" : "is listed") + " by bad reputation in " + Core.PERCENT_FORMAT.format(probability) + " of negative points of the total shipping volume.");
-                    buildText(builder, "In order for this FQDN to be removed from this list, it is necessary for all source MTAs to reduce the volume of submissions to recipients with <a target=\"_blank\" href=\"http://spfbl.net/en/feedback/\">SPFBL rejection prefix</a> in the SMTP layer.");
+                    buildText(builder, "In order for this FQDN to be removed from this list, it is necessary for all source MTAs to reduce the volume of submissions to recipients with <a target=\"_blank\" href=\"http://spfbl.net/en/feedback/\">SpamFox rejection prefix</a> in the SMTP layer.");
                 }
             } else if (Block.containsDomain(domain, true)) {
                 if (Reverse.isInexistentDomain(domain)) {
@@ -7897,10 +7904,13 @@ public final class ServerHTTP extends Server {
         builder.append("\">\n");
         builder.append("  <head>\n");
         builder.append("    <meta charset=\"UTF-8\">\n");
+        builder.append("    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
+        builder.append("    <link rel=\"icon\" type=\"image/png\" href=\"/favicon.png?v=spamfox-ui-20261005\">\n");
+        builder.append("    <link rel=\"shortcut icon\" href=\"/favicon.ico?v=spamfox-ui-20261005\">\n");
         if (locale.getLanguage().toLowerCase().equals("pt")) {
-            builder.append("    <title>Painel de controle do SPFBL</title>\n");
+            builder.append("    <title>Painel de controle do SpamFox</title>\n");
         } else {
-            builder.append("    <title>SPFBL control panel</title>\n");
+            builder.append("    <title>SpamFox control panel</title>\n");
         }
         // Styled page.
         builder.append("    <style type=\"text/css\">\n");
@@ -7972,7 +7982,8 @@ public final class ServerHTTP extends Server {
         builder.append("      }\n");
         builder.append("    </style>\n");
         builder.append("    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
-        builder.append("    <link rel=\"stylesheet\" href=\"style.css\">\n");
+        builder.append("    <script src=\"/theme.js?v=spamfox-ui-20261005\"></script>\n");
+        builder.append("    <link rel=\"stylesheet\" href=\"/style.css?v=spamfox-ui-20261005\">\n");
         builder.append("  </head>\n");
         // Body.
         builder.append("  <body class=\"query-detail-page\">\n");
@@ -8640,13 +8651,16 @@ public final class ServerHTTP extends Server {
             builder.append("\">\n");
             builder.append("  <head>\n");
             builder.append("    <meta charset=\"UTF-8\">\n");
+            builder.append("    <link rel=\"icon\" type=\"image/png\" href=\"/favicon.png?v=spamfox-ui-20261005\">\n");
+            builder.append("    <link rel=\"shortcut icon\" href=\"/favicon.ico?v=spamfox-ui-20261005\">\n");
             if (locale.getLanguage().toLowerCase().equals("pt")) {
-                builder.append("    <title>Painel de controle do SPFBL</title>\n");
+                builder.append("    <title>Painel de controle do SpamFox</title>\n");
             } else {
-                builder.append("    <title>SPFBL control panel</title>\n");
+                builder.append("    <title>SpamFox control panel</title>\n");
             }
             builder.append("    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
-            builder.append("    <link rel=\"stylesheet\" href=\"style.css\">\n");
+            builder.append("    <script src=\"/theme.js?v=spamfox-ui-20261005\"></script>\n");
+            builder.append("    <link rel=\"stylesheet\" href=\"/style.css?v=spamfox-ui-20261005\">\n");
             // JavaScript functions.
             TreeMap<Long,Query> queryMap = user.getQueryMap(null, null);
             builder.append("    <script type=\"text/javascript\" src=\"https://ajax.googleapis.com/ajax/libs/jquery/2.1.3/jquery.min.js\"></script>\n");
@@ -8749,7 +8763,7 @@ public final class ServerHTTP extends Server {
             builder.append("    <div class=\"dashboard-shell\">\n");
             builder.append("      <header class=\"dashboard-topbar\">\n");
             builder.append("        <div class=\"dashboard-brand\">\n");
-            builder.append("          <span class=\"dashboard-logo\"><img src=\"logo.png\" alt=\"SPFBL\"></span>\n");
+            builder.append("          <span class=\"dashboard-logo\"><img src=\"/logo.png?v=spamfox-ui-20261005\" alt=\"SpamFox\"></span>\n");
             builder.append("          <div class=\"dashboard-brand-copy\">\n");
             if (locale.getLanguage().toLowerCase().equals("pt")) {
                 builder.append("            <h1>Filtro de e-mails</h1>\n");
@@ -8760,7 +8774,8 @@ public final class ServerHTTP extends Server {
             }
             builder.append("          </div>\n");
             builder.append("        </div>\n");
-            builder.append("        <div class=\"dashboard-search\">\n");
+            builder.append("        <div class=\"dashboard-tools\">\n");
+            builder.append("          <div class=\"dashboard-search\">\n");
             if (locale.getLanguage().toLowerCase().equals("pt")) {
                 builder.append("          <input type=\"text\" id=\"filterField\" name=\"filterField\" placeholder=\"Pesquisar por remetente, domínio ou IP...\" aria-label=\"Pesquisar mensagens\" onkeydown=\"if (event.keyCode == 13) refresh();\" autofocus>\n");
                 builder.append("          <button type=\"button\" class=\"dashboard-search-button\" aria-label=\"Pesquisar\" title=\"Pesquisar\" onclick=\"refresh()\">⌕</button>\n");
@@ -8768,6 +8783,8 @@ public final class ServerHTTP extends Server {
                 builder.append("          <input type=\"text\" id=\"filterField\" name=\"filterField\" placeholder=\"Search sender, domain, or IP...\" aria-label=\"Search messages\" onkeydown=\"if (event.keyCode == 13) refresh();\" autofocus>\n");
                 builder.append("          <button type=\"button\" class=\"dashboard-search-button\" aria-label=\"Search\" title=\"Search\" onclick=\"refresh()\">⌕</button>\n");
             }
+            builder.append("          </div>\n");
+            builder.append("          <button type=\"button\" class=\"theme-toggle\" data-theme-toggle aria-label=\"Tema escuro\" title=\"Tema escuro\"><span class=\"theme-toggle-icon\" data-theme-icon aria-hidden=\"true\">☾</span><span data-theme-label>Tema escuro</span></button>\n");
             builder.append("        </div>\n");
             builder.append("      </header>\n");
             String detailsTitle;
@@ -8887,9 +8904,9 @@ public final class ServerHTTP extends Server {
             builder.append("      </div>\n");
             builder.append("      <footer class=\"dashboard-footer\"><small>");
             if (locale.getLanguage().toLowerCase().equals("pt")) {
-                builder.append("Powered by <a href='https://spfbl.net/'>SPFBL.net</a>");
+                builder.append("SpamFox, projeto baseado no <a href='https://spfbl.net/'>SPFBL.net</a>");
             } else {
-                builder.append("Powered by <a href='https://spfbl.net/'>SPFBL.net</a>");
+                builder.append("SpamFox, based on the <a href='https://spfbl.net/'>SPFBL project</a>");
             }
             builder.append("</small></footer>\n");
             builder.append("    </div>\n");
@@ -9081,11 +9098,13 @@ public final class ServerHTTP extends Server {
         builder.append("  <head>\n");
         builder.append("    <meta charset=\"UTF-8\">\n");
         builder.append("    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
-        builder.append("    <link rel=\"icon\" type=\"image/png\" href=\"favicon.png\">\n");
+        builder.append("    <link rel=\"icon\" type=\"image/png\" href=\"/favicon.png?v=spamfox-ui-20261005\">\n");
+        builder.append("    <link rel=\"shortcut icon\" href=\"/favicon.ico?v=spamfox-ui-20261005\">\n");
         builder.append("    <title>");
         builder.append(title);
         builder.append("</title>\n");
-        builder.append("    <link rel=\"stylesheet\" href=\"style.css\">\n");
+        builder.append("    <script src=\"/theme.js?v=spamfox-ui-20261005\"></script>\n");
+        builder.append("    <link rel=\"stylesheet\" href=\"/style.css?v=spamfox-ui-20261005\">\n");
         if (hasRecaptcha && Core.hasRecaptchaKeys()) {
             // novo reCAPCHA
             builder.append("    <script type=\"text/javascript\">\n");
@@ -9107,7 +9126,8 @@ public final class ServerHTTP extends Server {
         builder.append("  <head>\n");
         builder.append("    <meta charset=\"UTF-8\">\n");
         builder.append("    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
-        builder.append("    <link rel=\"icon\" type=\"image/png\" href=\"favicon.png\">\n");
+        builder.append("    <link rel=\"icon\" type=\"image/png\" href=\"/favicon.png?v=spamfox-ui-20261005\">\n");
+        builder.append("    <link rel=\"shortcut icon\" href=\"/favicon.ico?v=spamfox-ui-20261005\">\n");
         builder.append("    <meta charset=\"UTF-8\" http-equiv=\"refresh\" content=\"");
         builder.append(time);
         builder.append(";url=");
@@ -9118,7 +9138,8 @@ public final class ServerHTTP extends Server {
             builder.append(title);
             builder.append("</title>\n");
         }
-        builder.append("    <link rel=\"stylesheet\" href=\"style.css\">\n");
+        builder.append("    <script src=\"/theme.js?v=spamfox-ui-20261005\"></script>\n");
+        builder.append("    <link rel=\"stylesheet\" href=\"/style.css?v=spamfox-ui-20261005\">\n");
         builder.append("  </head>\n");
     }
 
@@ -9126,7 +9147,8 @@ public final class ServerHTTP extends Server {
             StringBuilder builder
     ) {
         builder.append("      <div id=\"divlogo\">\n");
-        builder.append("        <img src=\"logo.png\" alt=\"SPFBL\" style=\"max-width:468px;max-height:60px;\">\n");
+        builder.append("        <img src=\"/logo.png?v=spamfox-ui-20261005\" alt=\"SpamFox\" style=\"max-width:468px;max-height:60px;\">\n");
+        builder.append("        <button type=\"button\" class=\"theme-toggle\" data-theme-toggle aria-label=\"Tema escuro\" title=\"Tema escuro\"><span class=\"theme-toggle-icon\" data-theme-icon aria-hidden=\"true\">☾</span><span data-theme-label>Tema escuro</span></button>\n");
         builder.append("      </div>\n");
     }
 
@@ -9244,7 +9266,7 @@ public final class ServerHTTP extends Server {
                 builder.append("        </div>\n");
             }
             builder.append("        <div id=\"divpowered\">\n");
-            builder.append("          Powered by <a href='https://spfbl.net/'>SPFBL.net</a>\n");
+            builder.append("          SpamFox, projeto baseado no <a href='https://spfbl.net/'>SPFBL.net</a>\n");
             builder.append("        </div>\n");
         } else {
             if (unsubscribeURL == null) {
@@ -9259,7 +9281,7 @@ public final class ServerHTTP extends Server {
                 builder.append("        </div>\n");
             }
             builder.append("        <div id=\"divpowered\">\n");
-            builder.append("          Powered by <a href='https://spfbl.net/'>SPFBL.net</a>\n");
+            builder.append("          SpamFox, based on the <a href='https://spfbl.net/'>SPFBL project</a>\n");
             builder.append("        </div>\n");
         }
         builder.append("      </div>\n");
@@ -9276,9 +9298,9 @@ public final class ServerHTTP extends Server {
         builder.append(locale.getLanguage());
         builder.append("\">\n");
         if (locale.getLanguage().toLowerCase().equals("pt")) {
-            buildHead(true, builder, "SPFBL");
+            buildHead(true, builder, "SpamFox");
         } else {
-            buildHead(true, builder, "SPFBL");
+            buildHead(true, builder, "SpamFox");
         }
         builder.append("  <body>\n");
         builder.append("    <div id=\"container\">\n");
@@ -9286,9 +9308,9 @@ public final class ServerHTTP extends Server {
         buildMessage(builder, message);
         if (Core.hasPortDNSBL()) {
             if (locale.getLanguage().toLowerCase().equals("pt")) {
-                buildText(builder, "Para consultar uma reputação no serviço SPFBL, digite um IP, um FQDN ou uma URL:");
+                buildText(builder, "Para consultar uma reputação no SpamFox, digite um IP, um FQDN ou uma URL:");
             } else {
-                buildText(builder, "To query for reputation in the SPFBL service, type an IP, a FQDN or an URL:");
+                buildText(builder, "To query for reputation in SpamFox, type an IP, a FQDN or an URL:");
             }
             builder.append("      <div id=\"divcaptcha\">\n");
             builder.append("        <form method=\"POST\">\n");
@@ -9329,9 +9351,9 @@ public final class ServerHTTP extends Server {
         builder.append(locale.getLanguage());
         builder.append("\">\n");
         if (locale.getLanguage().toLowerCase().equals("pt")) {
-            buildHead(true, builder, "Página de denuncia SPFBL");
+            buildHead(true, builder, "Página de denúncia SpamFox");
         } else {
-            buildHead(true, builder, "SPFBL complaint page");
+            buildHead(true, builder, "SpamFox complaint page");
         }
         builder.append("  <body>\n");
         builder.append("    <div id=\"container\">\n");
@@ -9401,9 +9423,9 @@ public final class ServerHTTP extends Server {
         builder.append(locale.getLanguage());
         builder.append("\">\n");
         if (locale.getLanguage().toLowerCase().equals("pt")) {
-            buildHead(false, builder, "Página de denuncia SPFBL");
+            buildHead(false, builder, "Página de denúncia SpamFox");
         } else {
-            buildHead(false, builder, "SPFBL complaint page");
+            buildHead(false, builder, "SpamFox complaint page");
         }
         builder.append("  <body>\n");
         builder.append("    <div id=\"container\">\n");

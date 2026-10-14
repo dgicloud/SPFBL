@@ -84,7 +84,7 @@ def _dkim(value):
 
 
 def normalize_exim_signals(snapshot):
-    """Return only the fixed Jev schema; never preserve raw Exim values."""
+    """Return only the fixed technical-signal schema; discard raw Exim values."""
     if not hasattr(snapshot, "keys"):
         raise SignalError("signal_snapshot_invalid")
     if set(snapshot) - set(EXIM_SIGNAL_FIELDS):

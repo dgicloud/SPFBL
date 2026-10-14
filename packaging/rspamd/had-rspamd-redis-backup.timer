@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily backup of the Rspamd Bayes Redis snapshot
+
+[Timer]
+OnCalendar=*-*-* 04:30:00 UTC
+Persistent=true
+RandomizedDelaySec=5m
+Unit=had-rspamd-redis-backup.service
+
+[Install]
+WantedBy=timers.target

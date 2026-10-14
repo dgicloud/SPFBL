@@ -14,7 +14,7 @@ import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[2]
-VERSION = "0.2.0-pilot"
+VERSION = "0.2.4-pilot"
 FILES = (
     "integrations/postfix/README.md",
     "integrations/postfix/postfix_content_scan_manager.py",

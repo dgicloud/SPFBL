@@ -1,0 +1,141 @@
+name: had-antispam-dev
+
+services:
+  core:
+    image: had-antispam-dev:java8
+    build:
+      context: .
+      dockerfile: packaging/dev/Dockerfile
+    user: "10001:10001"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m
+      - /home/hadantispam:rw,nosuid,nodev,noexec,size=16m,uid=10001,gid=10001,mode=0700
+    volumes:
+      - ./packaging/dev/spfbl.conf:/workspace/spfbl.conf:ro
+      - ./.dev/data:/workspace/data
+      - ./.dev/logs:/workspace/logs
+    networks:
+      - isolated
+    healthcheck:
+      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/9877'"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+    stop_grace_period: 30s
+    restart: "no"
+
+  smoke:
+    image: python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f
+    profiles: ["test"]
+    entrypoint: ["python", "/workspace/packaging/dev/smoke.py"]
+    command: ["--host", "core", "--admin-port", "9875", "--spfbl-port", "9877"]
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./:/workspace:ro
+    networks:
+      - isolated
+    depends_on:
+      core:
+        condition: service_healthy
+
+  tunnel-smoke:
+    image: had-antispam-ssh-tunnel-smoke:dev
+    build:
+      context: .
+      dockerfile: packaging/dev/Dockerfile.ssh-tunnel-smoke
+    profiles: ["test"]
+    entrypoint: ["python", "/workspace/packaging/dev/ssh-tunnel-smoke.py"]
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - SYS_CHROOT
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=32m
+      - /run/sshd:rw,nosuid,nodev,noexec,size=2m,mode=0755
+    volumes:
+      - ./:/workspace:ro
+    networks:
+      - isolated
+    depends_on:
+      core:
+        condition: service_healthy
+
+  core-unix-bridge:
+    image: had-antispam-core-unix-bridge:dev
+    build:
+      context: .
+      dockerfile: packaging/dev/Dockerfile.core-unix-bridge
+    profiles: ["transport"]
+    user: "${HAD_BRIDGE_UID:-10001}:${HAD_TUNNEL_GID:-20001}"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=8m
+    environment:
+      HAD_CORE_SOCKET: /run/had-tunnel/core.sock
+      HAD_SPFBL_HOST: core
+      HAD_SPFBL_PORT: "9877"
+    volumes:
+      - ./.dev/tunnel:/run/had-tunnel
+    networks:
+      - isolated
+    depends_on:
+      core:
+        condition: service_healthy
+    restart: "no"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import os,stat,sys; p='/run/had-tunnel/core.sock'; sys.exit(0 if os.path.exists(p) and stat.S_ISSOCK(os.stat(p).st_mode) else 1)"
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  core-loopback-bridge:
+    image: python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f
+    profiles: ["transport"]
+    entrypoint: ["python", "/workspace/core_loopback_bridge.py"]
+    user: "${HAD_BRIDGE_UID:-10001}:${HAD_TUNNEL_GID:-20001}"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=8m
+    network_mode: host
+    environment:
+      HAD_CORE_SOCKET: /run/had-tunnel/core.sock
+      HAD_LOOPBACK_PORT: "19877"
+    volumes:
+      - ./packaging/dev/core_loopback_bridge.py:/workspace/core_loopback_bridge.py:ro
+      - ./.dev/tunnel:/run/had-tunnel
+    depends_on:
+      core-unix-bridge:
+        condition: service_healthy
+    restart: "no"
+
+networks:
+  isolated:
+    internal: true

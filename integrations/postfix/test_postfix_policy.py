@@ -4,6 +4,8 @@ import unittest
 from contextlib import redirect_stderr
 
 from postfix_policy import (
+    FEEDBACK_HEADER,
+    PolicyConfig,
     RESPONSE,
     parse_policy_request,
     process_request,
@@ -88,6 +90,43 @@ class PostfixPolicyTests(unittest.TestCase):
             serve(source, output, self.config, self.fake_query)
         self.assertEqual(RESPONSE + RESPONSE, output.getvalue())
         self.assertEqual(2, len(self.calls))
+
+    def test_opted_in_inbound_port_25_prepends_spfbl_ticket_without_changing_decision(self):
+        ticket = "T" * 48
+
+        def ticket_query(_envelope, _config):
+            return QueryResult("MONITOR", "continue", "decision", "PASS", True, 2, ticket)
+
+        events = io.StringIO()
+        with redirect_stderr(events):
+            output = process_request(
+                policy_request(server_port="25"),
+                PolicyConfig(self.config, feedback_tickets=True), ticket_query)
+
+        self.assertEqual(
+            b"action=PREPEND " + FEEDBACK_HEADER + b": PASS " + ticket.encode("ascii") + b"\n\n",
+            output)
+        self.assertEqual("DUNNO", json.loads(events.getvalue())["action"])
+        self.assertEqual("issued", json.loads(events.getvalue())["feedback_ticket_marker"])
+        self.assertNotIn(ticket, events.getvalue())
+
+    def test_opted_in_policy_marks_no_ticket_and_never_marks_authenticated_submission(self):
+        config = PolicyConfig(self.config, feedback_tickets=True)
+        with redirect_stderr(io.StringIO()):
+            no_ticket = process_request(
+                policy_request(server_port="25"), config, self.fake_query)
+            authenticated = process_request(
+                policy_request(server_port="587", sasl_username="user@example.test"),
+                config, self.fake_query)
+
+        self.assertIn(b"X-HAD-AntiSpam-Ticket: NONE", no_ticket)
+        self.assertEqual(RESPONSE, authenticated)
+
+    def test_feedback_ticket_prepending_is_disabled_by_default(self):
+        with redirect_stderr(io.StringIO()):
+            output = process_request(
+                policy_request(server_port="25"), self.config, self.fake_query)
+        self.assertEqual(RESPONSE, output)
 
 
 if __name__ == "__main__":

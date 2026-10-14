@@ -13,8 +13,8 @@ Uso: bash install.sh --test-recipient caixa@dominio.local [--check]
      [--server IP] [--port PORTA]
 
 Instala o adapter e os hooks RCPT/DATA de coleta em MONITOR/fail-open.
-Preserva as regras de bloqueio SPFBL existentes. Não ativa Jev nem instala
-chave OpenRouter. --check valida requisitos e conexão, sem alterar o servidor.
+Preserva as regras de bloqueio SPFBL existentes. --check valida requisitos e
+conexão, sem alterar o servidor.
 Antes: cadastre o IP público no core SPFBL e na allowlist da VM.
 EOF
 }

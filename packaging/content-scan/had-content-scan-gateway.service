@@ -25,6 +25,7 @@ RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 MemoryHigh=256M
 MemoryMax=384M
 CPUWeight=40
+CPUQuota=50%
 TasksMax=24
 
 [Install]

@@ -106,18 +106,23 @@ def _sendmail_command(sendmail, sender, recipients):
     return command
 
 
-def _open_upload(config, message_id):
-    parsed, client_id, token, max_bytes, timeout = config
+def _open_upload(config, message_id, sender=None, recipients=None, client_ip=None,
+                 helo=None, auth_user=None, client_ticket_status="unavailable"):
+    parsed, max_bytes, timeout = config
     connection = scan_client._connect(parsed, timeout)
     connection.putrequest("POST", parsed.path or "/", skip_accept_encoding=True)
     connection.putheader("Content-Type", "message/rfc822")
     connection.putheader("Transfer-Encoding", "chunked")
-    connection.putheader("X-SFOX-Client", client_id)
+    connection.putheader("X-SFOX-Client-Ticket-Status", client_ticket_status)
     if message_id:
         connection.putheader("X-SFOX-Message-ID", message_id)
-    connection.putheader("Authorization", "Bearer " + token)
+    metadata = scan_client.normalize_metadata(
+        queue_id=message_id, sender=sender, recipients=recipients,
+        client_ip=client_ip, helo=helo, auth_user=auth_user)
+    for name, value in scan_client.monitor_headers(metadata):
+        connection.putheader(name, value)
     connection.endheaders()
-    return connection, client_id, max_bytes
+    return connection, max_bytes
 
 
 def _upload_chunk(connection, chunk):
@@ -126,22 +131,26 @@ def _upload_chunk(connection, chunk):
     connection.send(b"\r\n")
 
 
-def _upload_result(connection, client_id, message_id, sent, started):
+def _upload_result(connection, message_id, sent, started,
+                   client_ticket_status):
     connection.send(b"0\r\n\r\n")
     response = connection.getresponse()
     response.read(4096)
     elapsed_ms = int((time.time() - started) * 1000)
     if response.status == 202:
-        _emit("upload_queued", client_id=client_id, message_id=message_id,
-              bytes=sent, latency_ms=elapsed_ms)
+        _emit("upload_queued", message_id=message_id,
+              bytes=sent, latency_ms=elapsed_ms,
+              client_ticket_status=client_ticket_status)
     else:
-        _emit("upload_skipped", client_id=client_id, message_id=message_id,
+        _emit("upload_skipped", message_id=message_id,
               reason="gateway_http_status", http_status=response.status,
-              bytes=sent, latency_ms=elapsed_ms)
+              bytes=sent, latency_ms=elapsed_ms,
+              client_ticket_status=client_ticket_status)
 
 
 def process_message(stream, sender, recipients, message_id, config_path,
-                    lock_path, sendmail="/usr/sbin/sendmail", popen=None):
+                    lock_path, sendmail="/usr/sbin/sendmail", popen=None,
+                    client_ip=None, helo=None, auth_user=None):
     """Reinject an accepted Postfix message and upload a bounded scan copy."""
     popen = popen or subprocess.Popen
     config = None
@@ -162,21 +171,24 @@ def process_message(stream, sender, recipients, message_id, config_path,
 
     lock = None
     connection = None
-    client_id = None
     max_bytes = 0
     sent = 0
     upload_started = time.time()
     upload_reason = None
+    feedback_header = scan_client.FeedbackHeaderStripper()
+    client_ticket_status = "header_unavailable"
     try:
+        stream, client_ticket_status = scan_client.capture_spfbl_ticket_status(stream)
         if config is not None:
-            client_id = config[1]
-            max_bytes = config[3]
+            max_bytes = config[2]
             try:
                 lock = _acquire_upload_slot(lock_path)
                 if lock is None:
                     upload_reason = "local_concurrency_limit"
                 else:
-                    connection, client_id, max_bytes = _open_upload(config, message_id)
+                    connection, max_bytes = _open_upload(
+                        config, message_id, sender, recipients, client_ip, helo,
+                        auth_user, client_ticket_status)
             except Exception as exc:
                 if connection is not None:
                     try:
@@ -185,10 +197,9 @@ def process_message(stream, sender, recipients, message_id, config_path,
                         pass
                     connection = None
                 upload_reason = "transport_error"
-                parsed, configured_client_id, _, _, _ = config
-                client_id = configured_client_id
-                _emit("upload_skipped", client_id=client_id, message_id=message_id,
+                _emit("upload_skipped", message_id=message_id,
                       reason=upload_reason, error=exc.__class__.__name__,
+                      client_ticket_status=client_ticket_status,
                       latency_ms=int((time.time() - upload_started) * 1000))
 
         while True:
@@ -196,7 +207,9 @@ def process_message(stream, sender, recipients, message_id, config_path,
             if not chunk:
                 break
             try:
-                reinject.stdin.write(chunk)
+                delivery_chunk = feedback_header.feed(chunk)
+                if delivery_chunk:
+                    reinject.stdin.write(delivery_chunk)
             except (IOError, OSError, BrokenPipeError) as exc:
                 _emit("reinject_deferred", reason="sendmail_input_error",
                       error=exc.__class__.__name__)
@@ -228,10 +241,24 @@ def process_message(stream, sender, recipients, message_id, config_path,
                         pass
                     connection = None
                     upload_reason = "transport_error"
-                    _emit("upload_skipped", client_id=client_id,
+                    _emit("upload_skipped",
                           message_id=message_id, reason=upload_reason,
                           error=exc.__class__.__name__, bytes=sent,
                           latency_ms=int((time.time() - upload_started) * 1000))
+
+        try:
+            tail = feedback_header.finish()
+            if tail:
+                reinject.stdin.write(tail)
+        except (IOError, OSError, BrokenPipeError) as exc:
+            _emit("reinject_deferred", reason="sendmail_input_error",
+                  error=exc.__class__.__name__)
+            try:
+                reinject.kill()
+            except Exception:
+                pass
+            reinject.wait()
+            return TEMPFAIL
 
         try:
             reinject.stdin.close()
@@ -256,19 +283,19 @@ def process_message(stream, sender, recipients, message_id, config_path,
                 if sent == 0:
                     upload_reason = "empty_message"
                     connection.close()
-                    _emit("upload_skipped", client_id=client_id,
+                    _emit("upload_skipped",
                           message_id=message_id, reason=upload_reason, bytes=0)
                 else:
-                    _upload_result(connection, client_id, message_id, sent,
-                                   upload_started)
+                    _upload_result(connection, message_id, sent,
+                                   upload_started, client_ticket_status)
             except Exception as exc:
                 upload_reason = "transport_error"
-                _emit("upload_skipped", client_id=client_id,
+                _emit("upload_skipped",
                       message_id=message_id, reason=upload_reason,
                       error=exc.__class__.__name__, bytes=sent,
                       latency_ms=int((time.time() - upload_started) * 1000))
         elif upload_reason:
-            _emit("upload_skipped", client_id=client_id,
+            _emit("upload_skipped",
                   message_id=message_id, reason=upload_reason, bytes=sent)
         return 0
     finally:
@@ -290,12 +317,17 @@ def main(argv=None):
     parser.add_argument("--sender", required=True)
     parser.add_argument("--recipient", action="append", required=True)
     parser.add_argument("--queue-id", default="-")
+    parser.add_argument("--client-ip", default=None)
+    parser.add_argument("--helo", default=None)
+    parser.add_argument("--auth-user", default=None)
     parser.add_argument("--config", default="/etc/had-content-scan/postfix/client.json")
     parser.add_argument("--lock", default="/var/lib/had-content-scan/postfix/upload.lock")
     parser.add_argument("--sendmail", default="/usr/sbin/sendmail")
     args = parser.parse_args(argv)
     return process_message(sys.stdin.buffer, args.sender, args.recipient,
-                           args.queue_id, args.config, args.lock, args.sendmail)
+                           args.queue_id, args.config, args.lock, args.sendmail,
+                           client_ip=args.client_ip, helo=args.helo,
+                           auth_user=args.auth_user)
 
 
 if __name__ == "__main__":

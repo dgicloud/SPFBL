@@ -18,13 +18,27 @@ LOCAL_COMMON = os.path.abspath(os.path.join(HERE, "..", "common"))
 if os.path.isfile(os.path.join(LOCAL_COMMON, "spfbl_client.py")) and LOCAL_COMMON not in sys.path:
     sys.path.insert(0, LOCAL_COMMON)
 
-from spfbl_client import Envelope, InputError, TransportConfig, query
+from spfbl_client import (
+    DECISIONS_WITH_MANUAL_FEEDBACK,
+    FEEDBACK_TICKET_TOKEN,
+    Envelope,
+    InputError,
+    TransportConfig,
+    query,
+)
 
 
 MAX_REQUEST_BYTES = 16384
 MAX_LINE_BYTES = 4096
 MAX_FIELDS = 64
 RESPONSE = b"action=DUNNO\n\n"
+FEEDBACK_HEADER = b"X-HAD-AntiSpam-Ticket"
+
+
+class PolicyConfig(object):
+    def __init__(self, upstream, feedback_tickets=False):
+        self.upstream = upstream
+        self.feedback_tickets = bool(feedback_tickets)
 
 
 def load_config(path):
@@ -59,7 +73,13 @@ def load_config(path):
         raise ValueError("FAIL_OPEN_must_remain_true")
     if values.get("MONITOR_MODE", "true").lower() != "true":
         raise ValueError("MONITOR_MODE_must_remain_true")
-    return TransportConfig(server_ip=server, port=port)
+    feedback_setting = values.get("SPFBL_FEEDBACK", "false").lower()
+    if feedback_setting not in ("true", "false"):
+        raise ValueError("SPFBL_FEEDBACK_must_be_true_or_false")
+    return PolicyConfig(
+        TransportConfig(server_ip=server, port=port),
+        feedback_tickets=feedback_setting == "true",
+    )
 
 
 def parse_policy_request(raw):
@@ -90,7 +110,7 @@ def parse_policy_request(raw):
     return fields
 
 
-def _dunno(status, decision=None, latency_ms=0):
+def _dunno(status, decision=None, latency_ms=0, feedback_marker=None):
     """Emit a PII-free monitor event and always return Postfix DUNNO."""
     event = {
         "event": "had_antispam_postfix_policy",
@@ -100,8 +120,25 @@ def _dunno(status, decision=None, latency_ms=0):
         "decision": decision,
         "latency_ms": latency_ms,
     }
+    if feedback_marker is not None:
+        event["feedback_ticket_marker"] = "issued" if feedback_marker != "NONE" else "none"
     print(json.dumps(event, separators=(",", ":")), file=sys.stderr, flush=True)
+    if feedback_marker is not None:
+        return (b"action=PREPEND " + FEEDBACK_HEADER + b": "
+                + feedback_marker.encode("ascii") + b"\n\n")
     return RESPONSE
+
+
+def _feedback_marker(fields, result):
+    """Attach one private marker per unauthenticated RCPT so multi-RCPT mail abstains."""
+    if fields.get("server_port") != "25" or fields.get("sasl_username", ""):
+        return None
+    decision = getattr(result, "decision", None)
+    ticket = getattr(result, "ticket", None)
+    if (decision in DECISIONS_WITH_MANUAL_FEEDBACK and isinstance(ticket, str)
+            and FEEDBACK_TICKET_TOKEN.fullmatch(ticket)):
+        return decision + " " + ticket
+    return "NONE"
 
 
 def process_request(raw, config, query_fn=None):
@@ -111,6 +148,9 @@ def process_request(raw, config, query_fn=None):
         fields = parse_policy_request(raw)
     except InputError as exc:
         return _dunno(str(exc), latency_ms=int((time.monotonic() - started) * 1000))
+
+    feedback_enabled = getattr(config, "feedback_tickets", False)
+    upstream = getattr(config, "upstream", config)
 
     if fields.get("protocol_state") != "RCPT":
         return _dunno("not_rcpt_stage", latency_ms=int((time.monotonic() - started) * 1000))
@@ -128,16 +168,24 @@ def process_request(raw, config, query_fn=None):
     try:
         envelope = Envelope.from_json(envelope_data)
     except (InputError, ValueError) as exc:
-        return _dunno(str(exc), latency_ms=int((time.monotonic() - started) * 1000))
+        marker = "NONE" if feedback_enabled and fields.get("server_port") == "25" \
+            and not fields.get("sasl_username", "") else None
+        return _dunno(str(exc), latency_ms=int((time.monotonic() - started) * 1000),
+                      feedback_marker=marker)
 
     try:
-        result = query_fn(envelope, config)
+        result = query_fn(envelope, upstream)
     except Exception:
-        return _dunno("adapter_internal_error", latency_ms=int((time.monotonic() - started) * 1000))
+        marker = "NONE" if feedback_enabled and fields.get("server_port") == "25" \
+            and not fields.get("sasl_username", "") else None
+        return _dunno("adapter_internal_error", latency_ms=int((time.monotonic() - started) * 1000),
+                      feedback_marker=marker)
+    marker = _feedback_marker(fields, result) if feedback_enabled else None
     return _dunno(
         result.status,
         result.decision,
         result.latency_ms,
+        feedback_marker=marker,
     )
 
 

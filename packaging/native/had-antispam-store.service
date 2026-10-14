@@ -1,0 +1,20 @@
+[Unit]
+Description=Persist SPFBL state through the local ADMIN socket
+Requires=had-antispam-core.service
+After=had-antispam-core.service
+
+[Service]
+Type=oneshot
+User=hadantispam
+Group=hadantispam
+ExecStart=/usr/bin/python3 /opt/spfbl/current/control.py store
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=yes
+LockPersonality=yes

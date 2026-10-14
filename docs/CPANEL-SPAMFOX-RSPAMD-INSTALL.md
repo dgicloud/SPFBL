@@ -28,48 +28,36 @@ O pacote não inclui core SPFBL, credenciais, mensagens `.eml`, nem instala Rspa
 
    Salve no WHM para o cPanel reconstruir o Exim. Não edite manualmente o `/etc/exim.conf` gerado. O mesmo bloco está no arquivo `integrations/cpanel/exim/transport-content-scan.conf` dentro do pacote.
 3. Confirme que `exim -bP system_filter_pipe_transport system_filter_user system_filter_group` mostra o transporte dedicado e que o Exim continua ativo.
-4. Na VM central, cadastre cada cPanel com um ID próprio e o IP público de saída correto. Habilite autotreino somente para o cliente desejado:
+4. Na VM central, libere o IP público de saída do cPanel no core SPFBL e na allowlist do gateway. Crie o perfil pelo IP; o nome interno será gerado automaticamente e o autotreino Bayes conservador ficará ligado por padrão:
 
    ```bash
-   had-content-scan-clients add ID-DO-CPANEL --cidr IP-PUBLICO/32 --autolearn
+   had-content-scan-clients add --cidr IP-PUBLICO/32
    had-content-scan-sync-allowlist
    nginx -t && systemctl reload nginx
    ```
 
-   Se o cliente já estiver cadastrado, ajuste o IP e o autotreino pela CLI central, sem criar credencial duplicada. Cada cPanel deve ter seu próprio token e CIDR.
+   Se o IP já tiver perfil, use o perfil listado pela CLI para ajustar o autotreino. A entrada do firewall e o perfil devem apontar para o mesmo IP/CIDR; faixas sobrepostas são recusadas.
 
 ## Pré-verificação e instalação
 
-Baixe o bootstrap versionado do repositório HADCloud. O script baixa um pacote fixado por SHA-256 para `/opt/spamfox-cpanel/releases/` e mantém os gerenciadores necessários para futuras atualizações e rollback:
+Baixe o instalador unificado. Ele detecta cPanel/Exim ou Postfix e usa o pacote de instalação fixado por SHA-256:
 
 ```bash
 cd /root
-curl -fsSLO https://raw.githubusercontent.com/dgicloud/SPFBL/hadcloud-cpanel-installer/client/spamfox-rspamd.cpanel.sh
-bash spamfox-rspamd.cpanel.sh --help
+curl -fsSLO https://raw.githubusercontent.com/dgicloud/SPFBL/hadcloud-cpanel-installer/client/spamfox-monitor.sh
+bash spamfox-monitor.sh --help
 ```
 
-Crie um arquivo temporário para o token sem colocá-lo em argumentos ou no histórico do shell:
+Substitua a caixa local por uma que o Exim roteia. Primeiro rode a pré-verificação:
 
 ```bash
-read -r -s -p 'Token deste cPanel: ' HAD_SCAN_TOKEN
-printf '\n'
-umask 077
-printf '%s' "$HAD_SCAN_TOKEN" > /root/had-content-scan.token
-unset HAD_SCAN_TOKEN
-chown root:root /root/had-content-scan.token
-chmod 0600 /root/had-content-scan.token
-```
-
-Substitua o ID e a caixa local por valores reais. Primeiro rode a pré-verificação:
-
-```bash
-bash /root/spamfox-rspamd.cpanel.sh --client-id ID-DO-CPANEL --test-recipient caixa@seudominio.com.br --check
+bash /root/spamfox-monitor.sh --test-recipient caixa@seudominio.com.br --check
 ```
 
 Se passar, instale:
 
 ```bash
-bash /root/spamfox-rspamd.cpanel.sh --client-id ID-DO-CPANEL --test-recipient caixa@seudominio.com.br --token-file /root/had-content-scan.token
+bash /root/spamfox-monitor.sh --test-recipient caixa@seudominio.com.br
 ```
 
 O smoke SMTP usa uma transação simulada local e não envia nem entrega e-mail. A instalação exige que a caixa informada exista e seja roteada localmente pelo Exim. O instalador valida as ACLs, o rebuild e o Exim; se uma etapa falha, reverte as alterações desta instalação.
@@ -84,6 +72,6 @@ journalctl -u exim --since '10 minutes ago' --no-pager | grep 'had-content-scan'
 
 Na VM central, procure `message_queued` e `scan_complete` no log do gateway. As cópias elegíveis aparecem na History da WebUI Rspamd. O modo é after-queue/monitor: nenhuma ação do Rspamd bloqueia ou altera a entrega SMTP. O treinamento Bayes e o feedback de ticket SPFBL são controlados por cliente na VM central; somente mensagens que passam os critérios de elegibilidade alimentam cada fluxo.
 
-O cliente envia o conteúdo da mensagem para a VM HAD via HTTPS, sem gravar `.eml` no cPanel. Assunto e corpo são analisados pelo Rspamd central; o gateway registra metadados operacionais sanitizados. Revogue o token na VM se o cPanel for removido ou comprometido.
+O cliente envia o conteúdo da mensagem para a VM HAD via HTTPS, sem gravar `.eml` no cPanel. Nginx e gateway só aceitam o IP cadastrado; o perfil interno e o autotreino são resolvidos por esse IP. Remova o IP da allowlist/firewall e desative o perfil se o cPanel for removido ou comprometido.
 
-O bundle fica em `/opt/spamfox-cpanel/releases/spamfox-rspamd-cpanel-0.1.12-pilot`. Mantenha esse diretório: os utilitários de gerenciamento da ACL Exim dependem dos arquivos do pacote. O hook SPFBL e o cliente nativo não são removidos pelo instalador deste add-on.
+O bundle fica em `/opt/spamfox-cpanel/releases/had-content-scan-cpanel-0.1.15-pilot`. Mantenha esse diretório: os utilitários de gerenciamento da ACL Exim dependem dos arquivos do pacote. O hook SPFBL e o cliente nativo não são removidos pelo instalador deste add-on.

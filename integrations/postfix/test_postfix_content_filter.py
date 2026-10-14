@@ -75,7 +75,7 @@ class PostfixContentFilterTests(unittest.TestCase):
         self.directory = tempfile.mkdtemp(prefix="had-postfix-content-")
         self.lock_path = os.path.join(self.directory, "scan.lock")
         self.config = (content_filter.scan_client.urlsplit(
-            "https://matrix.example.invalid/scan"), "mx-one", "t" * 48, 1024, 2.0)
+            "https://matrix.example.invalid/scan"), 1024, 2.0)
         self.payload = b"From: private@example.invalid\r\nSubject: private\r\n\r\nbody\r\n"
         self.process = _Process()
         self.command = None
@@ -90,12 +90,12 @@ class PostfixContentFilterTests(unittest.TestCase):
         return self.process
 
     def _run(self, connection=None, max_bytes=1024, load_error=None,
-             returncode=0, sender="sender@example.invalid", busy_lock_paths=()):
+             returncode=0, sender="sender@example.invalid", busy_lock_paths=(),
+             auth_user=None):
         self.process = _Process(returncode)
         self.events = []
         config = (content_filter.scan_client.urlsplit(
-            "https://matrix.example.invalid/scan"), "mx-one", "t" * 48,
-                  max_bytes, 2.0)
+            "https://matrix.example.invalid/scan"), max_bytes, 2.0)
         loader = mock.Mock(return_value=config)
         if load_error:
             loader.side_effect = load_error
@@ -116,7 +116,8 @@ class PostfixContentFilterTests(unittest.TestCase):
             result = content_filter.process_message(
                 io.BytesIO(self.payload), sender,
                 ["recipient@example.invalid"], "QID12345", "/tmp/client.json",
-                self.lock_path, popen=self._popen)
+                self.lock_path, popen=self._popen, client_ip="198.51.100.25",
+                helo="mx.example.invalid", auth_user=auth_user)
         return result, loader, connector
 
     def test_installed_layout_finds_scan_client_beside_filter(self):
@@ -149,15 +150,50 @@ class PostfixContentFilterTests(unittest.TestCase):
         self.assertTrue(self.process.stdin.closed)
         self.assertEqual(connection.request, ("POST", "/scan"))
         self.assertIn(("Transfer-Encoding", "chunked"), connection.headers)
+        self.assertIn(("X-SFOX-Client-Ticket-Status", "ticket_missing"),
+                      connection.headers)
+        self.assertNotIn("X-SFOX-Client", [name for name, _ in connection.headers])
+        self.assertNotIn("Authorization", [name for name, _ in connection.headers])
         self.assertIn(("X-SFOX-Message-ID", "QID12345"), connection.headers)
+        self.assertIn(("X-SFOX-SMTP-Queue-ID", "QID12345"), connection.headers)
+        self.assertIn(("X-SFOX-SMTP-From", "sender@example.invalid"), connection.headers)
+        self.assertIn(("X-SFOX-SMTP-Rcpt", "recipient@example.invalid"), connection.headers)
+        self.assertIn(("X-SFOX-SMTP-IP", "198.51.100.25"), connection.headers)
+        self.assertIn(("X-SFOX-SMTP-HELO", "mx.example.invalid"), connection.headers)
         self.assertEqual(bytes(connection.wire),
                          ("%X\r\n" % len(self.payload)).encode("ascii") +
                          self.payload + b"\r\n0\r\n\r\n")
         self.assertEqual(self.command[-1], "recipient@example.invalid")
         self.assertIn("sender@example.invalid", self.command)
         self.assertEqual(self.events[-1][0], "upload_queued")
+        self.assertEqual(self.events[-1][1]["client_ticket_status"], "ticket_missing")
         self.assertNotIn("sender@example.invalid", repr(self.events))
         self.assertNotIn("recipient@example.invalid", repr(self.events))
+
+    def test_internal_ticket_is_uploaded_for_feedback_but_removed_from_delivery(self):
+        ticket = "T" * 48
+        self.payload = (b"X-HAD-AntiSpam-Ticket: PASS " + ticket.encode("ascii")
+                        + b"\r\nSubject: x\r\n\r\nbody\r\n")
+        connection = _Connection()
+        result, _, _ = self._run(connection)
+
+        self.assertEqual(0, result)
+        self.assertEqual(b"Subject: x\r\n\r\nbody\r\n", bytes(self.process.stdin.data))
+        self.assertIn(self.payload, bytes(connection.wire))
+
+    def test_native_received_spfbl_header_is_preserved_on_postfix_delivery(self):
+        ticket = "T" * 48
+        self.payload = (b"Received-SPFBL: PASS https://matrix.hadcloud.srv.br/"
+                        + ticket.encode("ascii") + b"\r\nSubject: x\r\n\r\nbody\r\n")
+        connection = _Connection()
+        result, _, _ = self._run(connection)
+
+        self.assertEqual(0, result)
+        self.assertEqual(self.payload, bytes(self.process.stdin.data))
+        self.assertIn(self.payload, bytes(connection.wire))
+        self.assertIn(("X-SFOX-Client-Ticket-Status", "ticket_present"),
+                      connection.headers)
+        self.assertEqual(self.events[-1][1]["client_ticket_status"], "ticket_present")
 
     def test_gateway_failure_is_fail_open_for_delivery(self):
         self.process = _Process()
@@ -209,6 +245,13 @@ class PostfixContentFilterTests(unittest.TestCase):
         self.assertEqual(result, 0)
         sender_flag = self.command.index("-f")
         self.assertEqual(self.command[sender_flag + 1], "<>")
+
+    def test_authenticated_postfix_message_carries_auth_user_metadata(self):
+        connection = _Connection()
+        result, _, _ = self._run(connection=connection,
+                                 auth_user="mailbox@example.invalid")
+        self.assertEqual(result, 0)
+        self.assertIn(("X-SFOX-SMTP-User", "mailbox@example.invalid"), connection.headers)
 
     def test_midstream_gateway_failure_does_not_change_message_bytes(self):
         connection = _Connection(fail_on_send=True)

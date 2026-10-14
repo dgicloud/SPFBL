@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily SPFBL state persistence
+
+[Timer]
+OnCalendar=*-*-* 01:00:00 America/Sao_Paulo
+Persistent=true
+RandomizedDelaySec=5m
+Unit=had-antispam-store.service
+
+[Install]
+WantedBy=timers.target

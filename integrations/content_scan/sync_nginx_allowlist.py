@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render the Nginx allow/deny directives from the SPFBL cPanel allowlist."""
+"""Render Nginx allow/deny rules from the authorized mail-server list."""
 
 from __future__ import print_function
 
@@ -19,12 +19,12 @@ def render_allowlist(path):
                 continue
             network = ipaddress.ip_network(value, strict=False)
             if network.prefixlen == 0:
-                raise ValueError("refusing a default route in the cPanel allowlist")
+                raise ValueError("refusing a default route in the MTA allowlist")
             networks.add(network)
     if not networks:
-        raise ValueError("the cPanel allowlist is empty")
+        raise ValueError("the MTA allowlist is empty")
     ordered = sorted(networks, key=lambda item: (item.version, int(item.network_address), item.prefixlen))
-    return "# Generated from the SPFBL cPanel allowlist; do not edit manually.\n" + "".join(
+    return "# Generated from the authorized MTA allowlist; do not edit manually.\n" + "".join(
         "allow %s;\n" % item for item in ordered
     ) + "deny all;\n"
 
@@ -56,7 +56,7 @@ def main(argv=None):
         write_atomic(args.output, content)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
-    print("Nginx SFOX scan allowlist synchronized from %s" % args.allowlist)
+    print("Nginx SFOX monitor allowlist synchronized from %s" % args.allowlist)
     return 0
 
 
