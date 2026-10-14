@@ -4,10 +4,10 @@ O gateway recebe cópias de mensagens que já foram aceitas pelo MTA, faz fila s
 
 ## VM central
 
-Requisitos: Ubuntu 24.04, core SPFBL nativo ativo, Nginx funcional para `matrix.hadcloud.srv.br` e `/etc/had-antispam/allowed-cpanels.txt` contendo os IPs públicos dos MTAs.
+Requisitos: Ubuntu 24.04, core SPFBL nativo ativo, Nginx funcional para `antispam.exemplo.com` e `/etc/had-antispam/allowed-cpanels.txt` contendo os IPs públicos dos MTAs.
 
 ```bash
-cd /caminho/do/SPFBL
+cd /opt/spfbl
 bash packaging/rspamd/install-spamfox-rspamd.sh install
 ```
 
