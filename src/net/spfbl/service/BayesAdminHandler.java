@@ -25,11 +25,13 @@ import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -43,18 +45,22 @@ import net.spfbl.core.User;
 import net.spfbl.data.ContentBayes;
 import org.apache.commons.lang3.StringEscapeUtils;
 
-/** Admin-only native Bayes dashboard and RFC822 training endpoint. */
+/** Native Bayes administration and customer training endpoints. */
 final class BayesAdminHandler implements HttpHandler {
 
     private static final String PAGE_PATH = "/admin/bayes/";
     private static final String UPLOAD_PATH = "/admin/bayes/learn";
     private static final String CLIENT_PATH = "/admin/bayes/client";
+    private static final String CUSTOMER_PAGE_PATH = "/account/bayes/";
+    private static final String CUSTOMER_UPLOAD_PATH = "/account/bayes/learn";
     private static final int MAX_FILE_BYTES = 5 * 1024 * 1024;
     private static final int MAX_FILES = 10;
     private static final int MAX_BATCH_BYTES = 20 * 1024 * 1024;
     private static final int MAX_REQUEST_BYTES = MAX_BATCH_BYTES + 256 * 1024;
     private static final long CSRF_TTL_MILLIS = 30L * 60L * 1000L;
     private static final int MAX_CSRF_TOKENS = 4096;
+    private static final long CUSTOMER_UPLOAD_WINDOW_MILLIS = 24L * 60L * 60L * 1000L;
+    private static final int MAX_CUSTOMER_UPLOAD_FILES_PER_WINDOW = 100;
     private static final Pattern BOUNDARY_PATTERN = Pattern.compile(
             "(?i)(?:^|;)\\s*boundary=(?:\"([^\"]+)\"|([^;\\s]+))"
     );
@@ -62,11 +68,18 @@ final class BayesAdminHandler implements HttpHandler {
             "(?i)(?:^|;)\\s*([a-z0-9_-]+)\\s*=\\s*\"((?:\\\\.|[^\"])*)\""
     );
     private static final ConcurrentHashMap<String,CsrfGrant> CSRF_TOKENS = new ConcurrentHashMap<>();
+    private static final Map<String,ArrayDeque<Long>> CUSTOMER_UPLOADS = new HashMap<>();
 
     private final boolean secured;
+    private final boolean customerMode;
 
     BayesAdminHandler(boolean secured) {
+        this(secured, false);
+    }
+
+    BayesAdminHandler(boolean secured, boolean customerMode) {
         this.secured = secured;
+        this.customerMode = customerMode;
     }
 
     @Override
@@ -75,26 +88,43 @@ final class BayesAdminHandler implements HttpHandler {
         boolean secureRequest = secured || isTrustedSecureProxy(exchange);
         if (!secureRequest) {
             send(exchange, 403, "text/plain; charset=UTF-8",
-                    "A área administrativa exige HTTPS.\n");
+                    "Esta área exige HTTPS.\n");
             return;
         }
         exchange.getResponseHeaders().set("Strict-Transport-Security", "max-age=31536000");
-        if ("/admin/bayes".equals(path)) {
-            exchange.getResponseHeaders().set("Location", PAGE_PATH);
+        String pagePath = customerMode ? CUSTOMER_PAGE_PATH : PAGE_PATH;
+        String uploadPath = customerMode ? CUSTOMER_UPLOAD_PATH : UPLOAD_PATH;
+        if (pagePath.substring(0, pagePath.length() - 1).equals(path)) {
+            exchange.getResponseHeaders().set("Location", pagePath);
             exchange.sendResponseHeaders(301, -1);
             return;
         }
-        if (!PAGE_PATH.equals(path) && !UPLOAD_PATH.equals(path) && !CLIENT_PATH.equals(path)) {
+        if (!pagePath.equals(path) && !uploadPath.equals(path)
+                && !( !customerMode && CLIENT_PATH.equals(path))) {
             send(exchange, 404, "text/plain; charset=UTF-8", "Não encontrado.\n");
             return;
         }
         User user = ServerHTTP.getAuthenticatedUser(exchange, secureRequest);
-        if (user == null || !user.isAdmin()) {
+        boolean authorized = customerMode
+                ? user != null && hasRegisteredClient(user.getEmail())
+                : user != null && user.isAdmin();
+        if (!authorized) {
             send(exchange, user == null ? 401 : 403, "text/html; charset=UTF-8",
-                    renderAccessDenied(user == null));
+                    renderAccessDenied(user == null, customerMode));
             return;
         }
-        if (PAGE_PATH.equals(path) && "GET".equals(exchange.getRequestMethod())) {
+        if (pagePath.equals(path) && "GET".equals(exchange.getRequestMethod())) {
+            if (customerMode) {
+                String token = issueCsrfToken(user.getEmail());
+                if (token == null) {
+                    send(exchange, 503, "text/plain; charset=UTF-8",
+                            "Painel ocupado; tente novamente em alguns minutos.\n");
+                    return;
+                }
+                send(exchange, 200, "text/html; charset=UTF-8",
+                        renderCustomerDashboard(user, token, null));
+                return;
+            }
             DashboardTokens tokens = issueDashboardTokens(user.getEmail());
             if (tokens == null) {
                 send(exchange, 503, "text/plain; charset=UTF-8",
@@ -105,11 +135,11 @@ final class BayesAdminHandler implements HttpHandler {
                     renderDashboard(user, tokens, null, null));
             return;
         }
-        if (UPLOAD_PATH.equals(path) && "POST".equals(exchange.getRequestMethod())) {
+        if (uploadPath.equals(path) && "POST".equals(exchange.getRequestMethod())) {
             handleUpload(exchange, user);
             return;
         }
-        if (CLIENT_PATH.equals(path) && "POST".equals(exchange.getRequestMethod())) {
+        if (!customerMode && CLIENT_PATH.equals(path) && "POST".equals(exchange.getRequestMethod())) {
             handleClientRegistration(exchange, user);
             return;
         }
@@ -125,7 +155,170 @@ final class BayesAdminHandler implements HttpHandler {
                 && "https".equalsIgnoreCase(forwardedProtocol.trim());
     }
 
-    private static void handleUpload(HttpExchange exchange, User user) throws IOException {
+    static boolean hasRegisteredClient(String email) {
+        if (email == null || email.trim().isEmpty()) return false;
+        String normalized = email.trim().toLowerCase(Locale.ROOT);
+        for (Client client : Client.getSet()) {
+            String owner = client.getEmail();
+            if (owner != null && normalized.equals(owner.trim().toLowerCase(Locale.ROOT))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static synchronized boolean reserveCustomerTrainingSlots(String email, int files) {
+        if (email == null || files < 1 || files > MAX_FILES) return false;
+        long now = System.currentTimeMillis();
+        long cutoff = now - CUSTOMER_UPLOAD_WINDOW_MILLIS;
+        String key = email.trim().toLowerCase(Locale.ROOT);
+        CUSTOMER_UPLOADS.entrySet().removeIf(entry -> {
+            if (key.equals(entry.getKey())) return false;
+            ArrayDeque<Long> oldTimestamps = entry.getValue();
+            while (!oldTimestamps.isEmpty() && oldTimestamps.peekFirst() < cutoff) {
+                oldTimestamps.removeFirst();
+            }
+            return oldTimestamps.isEmpty();
+        });
+        ArrayDeque<Long> timestamps = CUSTOMER_UPLOADS.computeIfAbsent(key, ignored -> new ArrayDeque<Long>());
+        while (!timestamps.isEmpty() && timestamps.peekFirst() < cutoff) {
+            timestamps.removeFirst();
+        }
+        if (timestamps.size() + files > MAX_CUSTOMER_UPLOAD_FILES_PER_WINDOW) return false;
+        for (int index = 0; index < files; index++) timestamps.addLast(now);
+        return true;
+    }
+
+    static CustomerKpis summarizeCustomerResults(Iterable<String> results) {
+        CustomerKpis kpis = new CustomerKpis();
+        if (results == null) return kpis;
+        for (String result : results) {
+            kpis.total++;
+            if ("WHITE".equals(result) || "ACCEPT".equals(result)) {
+                kpis.accepted++;
+            } else if ("FLAG".equals(result)) {
+                kpis.suspicious++;
+            } else if ("HOLD".equals(result) || "GREYLIST".equals(result)
+                    || "LISTED".equals(result) || "QUEUE".equals(result)) {
+                kpis.pending++;
+            } else if (isRejectedResult(result)) {
+                kpis.rejected++;
+            }
+        }
+        return kpis;
+    }
+
+    private static boolean isRejectedResult(String result) {
+        return "REJECT".equals(result) || "BLOCK".equals(result) || "BLOCKED".equals(result)
+                || "FAIL".equals(result) || "FAILED".equals(result) || "INVALID".equals(result)
+                || "INEXISTENT".equals(result) || "NXDOMAIN".equals(result)
+                || "NXSENDER".equals(result) || "SPAMTRAP".equals(result) || "TRAP".equals(result);
+    }
+
+    static final class CustomerKpis {
+        long total;
+        long accepted;
+        long rejected;
+        long suspicious;
+        long pending;
+
+        long other() {
+            return Math.max(0, total - accepted - rejected - suspicious - pending);
+        }
+    }
+
+    static String renderCustomerDashboard(User user, String csrfToken, UploadReport report) {
+        Locale locale = user.getLocale();
+        boolean english = locale != null && "en".equalsIgnoreCase(locale.getLanguage());
+        TreeMap<Long,User.Query> recent = user.getQueryMap(null, null);
+        ArrayList<String> results = new ArrayList<>();
+        if (recent != null) {
+            for (User.Query query : recent.values()) {
+                if (query != null) results.add(query.getResult());
+            }
+        }
+        CustomerKpis kpis = summarizeCustomerResults(results);
+        StringBuilder html = new StringBuilder(9000);
+        html.append("<!DOCTYPE html><html lang=\"").append(english ? "en" : "pt-BR")
+                .append("\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">")
+                .append("<link rel=\"icon\" href=\"/favicon.png\"><title>")
+                .append(english ? "Customer dashboard · SpamFox" : "Painel do cliente · SpamFox")
+                .append("</title><link rel=\"stylesheet\" href=\"/style.css?v=spamfox-ui-20261017-3\">")
+                .append("<script src=\"/theme.js?v=spamfox-ui-20261017\" defer></script></head>")
+                .append("<body class=\"bayes-admin-page\"><main class=\"bayes-admin-shell\">")
+                .append("<header class=\"bayes-admin-topbar\"><a class=\"bayes-admin-brand\" href=\"")
+                .append(CUSTOMER_PAGE_PATH).append("\"><img src=\"/logo.png\" alt=\"SpamFox\"><span><strong>SpamFox</strong><small>")
+                .append(english ? "Customer area · SPFBL core" : "Área do cliente · core SPFBL")
+                .append("</small></span></a><nav><a href=\"/").append(escapeAttribute(user.getEmail())).append("\">")
+                .append(english ? "Email statuses" : "Lista e status dos e-mails")
+                .append("</a><button class=\"theme-toggle\" type=\"button\" data-theme-toggle><span data-theme-icon>☾</span><span data-theme-label>")
+                .append(english ? "Dark theme" : "Tema escuro")
+                .append("</span></button></nav></header>")
+                .append("<section class=\"bayes-admin-heading\"><div><p class=\"bayes-eyebrow\">")
+                .append(english ? "CUSTOMER ACCOUNT" : "CONTA DO CLIENTE")
+                .append("</p><h1>").append(english ? "Email activity and Bayes training" : "Atividade de e-mails e treinamento Bayes")
+                .append("</h1><p>")
+                .append(english ? "Recent statuses belong to your account. Upload confirmed messages to train the shared model."
+                        : "Os status recentes pertencem à sua conta. Envie mensagens confirmadas para treinar o modelo compartilhado.")
+                .append("</p></div><span class=\"bayes-live-pill is-active\"><i></i>")
+                .append(english ? "Account linked" : "Conta vinculada")
+                .append("</span></section>")
+                .append("<section class=\"bayes-kpi-grid customer-kpi-grid\" aria-label=\"")
+                .append(english ? "Recent account email indicators" : "Indicadores recentes de e-mail da conta")
+                .append("\">");
+        appendKpi(html, english ? "Recent events" : "Eventos recentes", String.valueOf(kpis.total), "blue", "✉");
+        appendKpi(html, english ? "Accepted" : "Aceitos", String.valueOf(kpis.accepted), "green", "✓");
+        appendKpi(html, english ? "Rejected" : "Rejeitados", String.valueOf(kpis.rejected), "coral", "⛔");
+        appendKpi(html, english ? "Suspicious" : "Suspeitos", String.valueOf(kpis.suspicious), "purple", "⚠");
+        appendKpi(html, english ? "Pending" : "Pendentes", String.valueOf(kpis.pending), "blue", "◷");
+        html.append("</section><p class=\"bayes-customer-scope\">")
+                .append(english ? "Counts follow the recent message records available to your mail account in the core. Other statuses: "
+                        : "Os indicadores usam os registros recentes da sua conta disponíveis no core. Outros status: ")
+                .append(kpis.other()).append(".</p>");
+        if (report != null) {
+            html.append("<section class=\"bayes-card bayes-report ")
+                    .append(report.error ? "is-error" : "is-success").append("\"><h2>")
+                    .append(english ? "Training result" : "Resultado do treinamento")
+                    .append("</h2><p>").append(escapeHtml(report.notice)).append("</p>");
+            if (report.results != null && !report.results.isEmpty()) {
+                html.append("<div class=\"bayes-results-wrap\"><table class=\"bayes-results\"><thead><tr><th>")
+                        .append(english ? "File" : "Arquivo").append("</th><th>")
+                        .append(english ? "Result" : "Resultado").append("</th></tr></thead><tbody>");
+                for (LearnResult result : report.results) {
+                    html.append("<tr><td>").append(escapeHtml(result.filename)).append("</td><td>")
+                            .append(escapeHtml(statusLabel(result.status, english))).append("</td></tr>");
+                }
+                html.append("</tbody></table></div>");
+            }
+            html.append("</section>");
+        }
+        html.append("<section class=\"bayes-card bayes-training-card customer-training-card\"><div class=\"bayes-card-heading\"><div><p class=\"bayes-eyebrow\">")
+                .append(english ? "SHARED MODEL" : "MODELO COMPARTILHADO")
+                .append("</p><h2>").append(english ? "Label .eml messages" : "Classificar mensagens .eml")
+                .append("</h2></div><span class=\"bayes-card-icon\">⇧</span></div><p class=\"bayes-help\">")
+                .append(english ? "Your SPAM/HAM label is added immediately to the Bayes model shared by enrolled servers. It can affect later classifications for every customer. Only submit reviewed examples; originals are not retained."
+                        : "Seu rótulo SPAM/HAM é adicionado imediatamente ao Bayes compartilhado pelos servidores cadastrados e pode afetar classificações futuras de todos os clientes. Envie apenas exemplos revisados; os arquivos originais não são guardados.")
+                .append("</p><form class=\"bayes-upload-form\" method=\"post\" enctype=\"multipart/form-data\" action=\"")
+                .append(CUSTOMER_UPLOAD_PATH).append("\"><input type=\"hidden\" name=\"csrf\" value=\"")
+                .append(escapeAttribute(csrfToken)).append("\"><fieldset><legend>")
+                .append(english ? "Message label" : "Classificação das mensagens")
+                .append("</legend><label class=\"bayes-label-option spam-label\"><input type=\"radio\" name=\"label\" value=\"SPAM\" required><span><b>SPAM</b><small>")
+                .append(english ? "Unwanted or malicious" : "Indesejada ou maliciosa")
+                .append("</small></span></label><label class=\"bayes-label-option ham-label\"><input type=\"radio\" name=\"label\" value=\"HAM\" required><span><b>HAM</b><small>")
+                .append(english ? "Confirmed legitimate message" : "Mensagem legítima confirmada")
+                .append("</small></span></label></fieldset><label class=\"bayes-file-picker\"><span class=\"bayes-file-symbol\">＋</span><span><b>")
+                .append(english ? "Select .eml files" : "Selecionar arquivos .eml")
+                .append("</b><small>").append(english ? "Up to 10 files · 5 MiB each · 20 MiB per batch · 100 files per 24 hours"
+                        : "Até 10 arquivos · 5 MiB cada · 20 MiB por lote · 100 arquivos por 24 horas")
+                .append("</small><input type=\"file\" name=\"eml\" accept=\".eml,message/rfc822\" multiple required></span></label><button class=\"bayes-submit\" type=\"submit\">")
+                .append(english ? "Train shared Bayes" : "Treinar Bayes compartilhado")
+                .append("</button></form></section><footer class=\"bayes-admin-footer\"><span>")
+                .append(english ? "Native Bayes model powered by the SPFBL core." : "Bayes nativo executado pelo core SPFBL.")
+                .append("</span><span>").append(escapeHtml(user.getEmail())).append("</span></footer></main></body></html>");
+        return html.toString();
+    }
+
+    private void handleUpload(HttpExchange exchange, User user) throws IOException {
         try {
             String contentType = exchange.getRequestHeaders().getFirst("Content-Type");
             String boundary = getBoundary(contentType);
@@ -191,6 +384,13 @@ final class BayesAdminHandler implements HttpHandler {
                     return;
                 }
             }
+            if (customerMode && !reserveCustomerTrainingSlots(user.getEmail(), form.files.size())) {
+                renderUploadResult(exchange, user, null,
+                        "Limite atingido: cada conta pode enviar até "
+                                + MAX_CUSTOMER_UPLOAD_FILES_PER_WINDOW
+                                + " arquivos .eml em 24 horas.", true);
+                return;
+            }
 
             List<LearnResult> results = new ArrayList<>();
             int added = 0;
@@ -211,7 +411,8 @@ final class BayesAdminHandler implements HttpHandler {
             boolean stored = added == 0 || ContentBayes.store();
             String label = spam ? "SPAM" : "HAM";
             if (stored) {
-                Server.logInfo("Native Bayes web training: admin=" + user.getEmail()
+                Server.logInfo("Native Bayes web training: actor="
+                        + (customerMode ? "customer:" : "admin:") + user.getEmail()
                         + " label=" + label + " files=" + form.files.size() + " added=" + added);
                 renderUploadResult(exchange, user, results,
                         stored ? "Lote " + label + " processado. " + added
@@ -231,8 +432,20 @@ final class BayesAdminHandler implements HttpHandler {
         }
     }
 
-    private static void renderUploadResult(HttpExchange exchange, User user,
+    private void renderUploadResult(HttpExchange exchange, User user,
             List<LearnResult> results, String notice, boolean error) throws IOException {
+        if (customerMode) {
+            String token = issueCsrfToken(user.getEmail());
+            if (token == null) {
+                send(exchange, 503, "text/plain; charset=UTF-8",
+                        "Treinamento concluído, mas não foi possível abrir um novo formulário.\n");
+                return;
+            }
+            send(exchange, 200, "text/html; charset=UTF-8",
+                    renderCustomerDashboard(user, token,
+                            new UploadReport(results, notice, error)));
+            return;
+        }
         DashboardTokens tokens = issueDashboardTokens(user.getEmail());
         if (tokens == null) {
             send(exchange, 503, "text/plain; charset=UTF-8",
@@ -663,16 +876,20 @@ final class BayesAdminHandler implements HttpHandler {
         html.append("</div></section>");
     }
 
-    private static String renderAccessDenied(boolean loginRequired) {
+    private static String renderAccessDenied(boolean loginRequired, boolean customerMode) {
         StringBuilder html = new StringBuilder();
         html.append("<!DOCTYPE html><html lang=\"pt-BR\"><head><meta charset=\"UTF-8\">")
                 .append("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Acesso restrito · SpamFox</title>")
                 .append("<link rel=\"stylesheet\" href=\"/style.css?v=spamfox-ui-20261017-2\"><script src=\"/theme.js?v=spamfox-ui-20261017\" defer></script>")
                 .append("</head><body class=\"bayes-admin-page\"><main class=\"bayes-access-card\"><img src=\"/logo.png\" alt=\"SpamFox\"><h1>Acesso restrito</h1><p>")
-                .append(loginRequired ? "Entre com uma conta administradora do SPFBL para abrir este painel." : "Esta área está disponível somente para administradores do SPFBL.")
+                .append(loginRequired
+                        ? (customerMode ? "Entre primeiro pelo painel de e-mails da sua conta e acesse esta área novamente."
+                                : "Entre com uma conta administradora do SPFBL para abrir este painel.")
+                        : (customerMode ? "Esta conta não possui servidores de e-mail cadastrados no core."
+                                : "Esta área está disponível somente para administradores do SPFBL."))
                 .append("</p>");
         String adminEmail = Core.getAdminEmail();
-        if (loginRequired && adminEmail != null) {
+        if (loginRequired && !customerMode && adminEmail != null) {
             html.append("<a class=\"bayes-submit\" href=\"/").append(escapeAttribute(adminEmail)).append("\">Entrar como administrador</a>");
         }
         html.append("</main></body></html>");

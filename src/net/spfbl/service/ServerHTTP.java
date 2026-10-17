@@ -218,6 +218,7 @@ public final class ServerHTTP extends Server {
         Server.logInfo("binding HTTP socket on port " + port + "...");
         SERVER = HttpServer.create(new InetSocketAddress(port), 0);
         SERVER.createContext("/admin/bayes", new BayesAdminHandler(false));
+        SERVER.createContext("/account/bayes", new BayesAdminHandler(false, true));
         SERVER.createContext("/", new AccessHandler(false));
         EXECUTOR = new ExecutorHTTP();
         SERVER.setExecutor(EXECUTOR);
@@ -8794,6 +8795,11 @@ public final class ServerHTTP extends Server {
                 builder.append(locale.getLanguage().toLowerCase().equals("pt")
                         ? "Administração Bayes" : "Bayes administration");
                 builder.append("</a>\n");
+            } else if (BayesAdminHandler.hasRegisteredClient(user.getEmail())) {
+                builder.append("          <a class=\"bayes-admin-shortcut\" href=\"/account/bayes/\">");
+                builder.append(locale.getLanguage().toLowerCase().equals("pt")
+                        ? "Indicadores e treinamento" : "Activity and training");
+                builder.append("</a>\n");
             }
             builder.append("          <button type=\"button\" class=\"theme-toggle\" data-theme-toggle aria-label=\"Tema escuro\" title=\"Tema escuro\"><span class=\"theme-toggle-icon\" data-theme-icon aria-hidden=\"true\">☾</span><span data-theme-label>Tema escuro</span></button>\n");
             builder.append("        </div>\n");
@@ -9658,6 +9664,7 @@ public final class ServerHTTP extends Server {
                             }
                         });
                         server.createContext("/admin/bayes", new BayesAdminHandler(true));
+                        server.createContext("/account/bayes", new BayesAdminHandler(true, true));
                         server.createContext("/", new AccessHandler(true));
                         server.setExecutor(EXECUTOR);
                         server.start();

@@ -966,6 +966,9 @@ html[data-theme="dark"] body.query-detail-page button.recipient:hover {
 .bayes-live-pill i, .bayes-status-dot { width: 9px; height: 9px; border-radius: 50%; background: #17a673; box-shadow: 0 0 0 4px rgba(23,166,115,.12); }
 .bayes-live-pill.is-idle i { background: #d69428; box-shadow: 0 0 0 4px rgba(214,148,40,.13); }
 .bayes-kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
+.customer-kpi-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.bayes-customer-scope { margin: -7px 2px 18px; color: var(--muted); font-size: 12px; }
+.customer-training-card { max-width: 980px; }
 .bayes-kpi, .bayes-card { border: 1px solid var(--line); border-radius: 18px; background: var(--surface); box-shadow: 0 10px 30px rgba(30,53,91,.045); }
 .bayes-kpi { display: flex; align-items: center; gap: 14px; min-height: 106px; padding: 20px; }
 .bayes-kpi-icon { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 14px; background: #fff0ed; color: #d65d49; font-size: 22px; font-weight: 800; }
@@ -1056,6 +1059,7 @@ html[data-theme="dark"] .bayes-client-form input, html[data-theme="dark"] .bayes
 
 @media (max-width: 900px) {
 	.bayes-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	.customer-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 	.bayes-admin-grid { grid-template-columns: 1fr; }
 }
 
@@ -1066,6 +1070,7 @@ html[data-theme="dark"] .bayes-client-form input, html[data-theme="dark"] .bayes
 	.bayes-admin-topbar nav { width: 100%; justify-content: space-between; }
 	.bayes-admin-brand img { width: 92px; }
 	.bayes-kpi-grid { gap: 9px; }
+	.customer-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 	.bayes-kpi { min-height: 88px; padding: 13px; gap: 9px; }
 	.bayes-kpi-icon { width: 36px; height: 36px; border-radius: 11px; font-size: 18px; }
 	.bayes-kpi-copy small { font-size: 10px; }

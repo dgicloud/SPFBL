@@ -71,6 +71,10 @@ public final class BayesAdminMultipartSmoke {
         require("SPFBL".equals(firstServer.getPermission().name()), "Server permission was not stored.");
         require(Client.create("203.0.113.10/32", "mx1.example.test",
                 "SPFBL", "abuse@example.test") == null, "Duplicate native client CIDR was accepted.");
+        require(BayesAdminHandler.hasRegisteredClient("ABUSE@example.test"),
+                "Registered customer email was not matched case-insensitively.");
+        require(!BayesAdminHandler.hasRegisteredClient("unmapped@example.test"),
+                "An account without an enrolled mail server passed customer authorization.");
         require(Client.storeNow(), "Native client registration did not persist.");
         require(new java.io.File("./data/client.map").isFile(), "Native client map was not written.");
         User user = User.create("abuse@example.test", "Example Company");
@@ -80,10 +84,39 @@ public final class BayesAdminMultipartSmoke {
                 "New customer account must not be assigned a static password or secret without TOTP onboarding.");
         require(User.storeMap(), "Native user account did not persist.");
         require(new java.io.File("./data/user.map").isFile(), "Native user map was not written.");
+        String customerDashboard = BayesAdminHandler.renderCustomerDashboard(user, "single-use-token", null);
+        require(customerDashboard.contains("action=\"/account/bayes/learn\""),
+                "Customer dashboard did not post training to the customer-only endpoint.");
+        require((customerDashboard.contains("Lista e status dos e-mails")
+                || customerDashboard.contains("Email statuses"))
+                && (customerDashboard.contains("Eventos recentes")
+                || customerDashboard.contains("Recent events"))
+                && (customerDashboard.contains("Treinar Bayes compartilhado")
+                || customerDashboard.contains("Train shared Bayes")),
+                "Customer dashboard is missing account KPIs or shared Bayes training controls.");
+        require(!customerDashboard.contains("/admin/bayes/learn")
+                && !customerDashboard.contains("Amostras SPAM"),
+                "Customer dashboard exposed administrative Bayes controls or model internals.");
+        BayesAdminHandler.CustomerKpis kpis = BayesAdminHandler.summarizeCustomerResults(
+                Arrays.asList("ACCEPT", "WHITE", "REJECT", "BLOCK", "FLAG", "HOLD", "GREYLIST", "OTHER"));
+        require(kpis.total == 8 && kpis.accepted == 2 && kpis.rejected == 2
+                && kpis.suspicious == 1 && kpis.pending == 2 && kpis.other() == 1,
+                "Customer email status KPIs were not grouped correctly.");
+        for (int batch = 0; batch < 10; batch++) {
+            require(BayesAdminHandler.reserveCustomerTrainingSlots("abuse@example.test", 10),
+                    "Customer training quota rejected one of its 10-file batches.");
+        }
+        require(!BayesAdminHandler.reserveCustomerTrainingSlots("abuse@example.test", 1),
+                "Customer training quota exceeded 100 files in the rolling window.");
+        require(BayesAdminHandler.reserveCustomerTrainingSlots("other@example.test", 1),
+                "Customer training quota was not isolated by account.");
         System.out.println("PASS: native Bayes admin multipart parser preserves EML and rejects malformed forms.");
         System.out.println("PASS: native client admin form parser validates fields and decodes CIDRs safely.");
         System.out.println("PASS: native client registration matches CLIENT ADD and persists client.map.");
         System.out.println("PASS: native customer user is created and persisted without a static password.");
+        System.out.println("PASS: customer dashboard renders account KPIs and the shared-model upload without admin controls.");
+        System.out.println("PASS: customer Bayes access requires an enrolled client email and account KPIs classify delivery states.");
+        System.out.println("PASS: customer global Bayes training quota is limited and isolated by account.");
     }
 
     private static byte[] multipart(String fileField, String filename, byte[] eml, boolean close) throws Exception {
