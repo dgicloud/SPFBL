@@ -217,6 +217,7 @@ public final class ServerHTTP extends Server {
         // Criando conexões.
         Server.logInfo("binding HTTP socket on port " + port + "...");
         SERVER = HttpServer.create(new InetSocketAddress(port), 0);
+        SERVER.createContext("/admin/bayes", new BayesAdminHandler(false));
         SERVER.createContext("/", new AccessHandler(false));
         EXECUTOR = new ExecutorHTTP();
         SERVER.setExecutor(EXECUTOR);
@@ -483,9 +484,13 @@ public final class ServerHTTP extends Server {
         return getLocale(acceptLanguage);
     }
     
-    private static User getUser(HttpExchange exchange, boolean secured) {
+    static User getAuthenticatedUser(HttpExchange exchange, boolean secured) {
         String email = getUserEmail(exchange, secured);
         return User.getExact(email);
+    }
+
+    private static User getUser(HttpExchange exchange, boolean secured) {
+        return getAuthenticatedUser(exchange, secured);
     }
 
     private static User.Query getPanelQuery(User user, long timeKey) {
@@ -8784,6 +8789,12 @@ public final class ServerHTTP extends Server {
                 builder.append("          <button type=\"button\" class=\"dashboard-search-button\" aria-label=\"Search\" title=\"Search\" onclick=\"refresh()\">⌕</button>\n");
             }
             builder.append("          </div>\n");
+            if (user.isAdmin()) {
+                builder.append("          <a class=\"bayes-admin-shortcut\" href=\"/admin/bayes/\">");
+                builder.append(locale.getLanguage().toLowerCase().equals("pt")
+                        ? "Administração Bayes" : "Bayes administration");
+                builder.append("</a>\n");
+            }
             builder.append("          <button type=\"button\" class=\"theme-toggle\" data-theme-toggle aria-label=\"Tema escuro\" title=\"Tema escuro\"><span class=\"theme-toggle-icon\" data-theme-icon aria-hidden=\"true\">☾</span><span data-theme-label>Tema escuro</span></button>\n");
             builder.append("        </div>\n");
             builder.append("      </header>\n");
@@ -9646,6 +9657,7 @@ public final class ServerHTTP extends Server {
                                 }
                             }
                         });
+                        server.createContext("/admin/bayes", new BayesAdminHandler(true));
                         server.createContext("/", new AccessHandler(true));
                         server.setExecutor(EXECUTOR);
                         server.start();

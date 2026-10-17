@@ -4,14 +4,16 @@
 
 O arquivo-base é `packaging/native/nginx-matrix.conf`. Ele termina TLS em 443 e separa duas funções:
 
-1. **Painel SPFBL**: todas as rotas usuais seguem para `127.0.0.1:8080`.
-2. **Gateway Rspamd**: somente `POST /internal/sfox/scan` segue para `127.0.0.1:11335/v1/scan`.
+1. **Painel SPFBL**: as rotas usuais, incluindo `/admin/bayes/`, seguem para `127.0.0.1:8080`.
+2. **Gateway nativo**: somente `POST /internal/sfox/scan` segue para `127.0.0.1:11335/v1/scan`; o gateway consulta o Bayes do core em loopback.
 
 A raiz `/` redireciona para `/pt/`. Links legados que contenham `:8080` são convertidos para HTTPS. O serviço SPFBL não deve ser publicado diretamente em 8080.
 
+O painel administrativo nativo fica em `/admin/bayes/`, no mesmo vhost. Ele mostra o estado do Bayes, permite classificar EMLs e cadastrar clientes e MTAs pela operação `CLIENT ADD`. A rota e os `POST` exigem sessão de administrador; upload e cadastros só são permitidos quando HTTPS termina no próprio SPFBL ou quando o proxy local envia `X-Forwarded-Proto: https`. O core só confia nesse cabeçalho quando a conexão vem de loopback. O cadastro `CLIENT ADD` não habilita, por si só, pontuação ou decisões Bayes.
+
 ## Inclusão do gateway
 
-`packaging/content-scan/install-gateway.sh` localiza o vhost habilitado de `matrix.exemplo.com` e instala, dentro do bloco `server` HTTPS:
+`packaging/content-scan/install-gateway.sh --hostname matrix.example.com` localiza o vhost habilitado e instala, dentro do bloco `server` HTTPS:
 
 ```nginx
 include /etc/nginx/snippets/had-sfox-scan-location.conf;
@@ -27,7 +29,7 @@ Esse segundo arquivo é gerado por `had-content-scan-sync-allowlist` a partir de
 
 ## `antispam.exemplo.com`
 
-Esse vhost é exclusivo da WebUI nativa do Rspamd. Ele deve fazer proxy apenas ao controller/local endpoint configurado para a interface e exigir a autenticação definida no servidor. Não reutilize o vhost `matrix` para expor a WebUI, nem exponha as portas 11333, 11334 ou 6379.
+Esse vhost encaminha para `https://matrix.exemplo.com/admin/bayes/`. O painel aplica a autenticação nativa do SPFBL e exige uma sessão administrativa. O gateway de conteúdo não expõe uma interface própria. Rspamd/Redis não são dependências do fluxo e as portas 11333, 11334 e 6379 não precisam ser abertas.
 
 ## Validação e rollback
 
@@ -37,5 +39,7 @@ systemctl reload nginx
 curl -i https://matrix.exemplo.com/
 curl -i https://matrix.exemplo.com/internal/sfox/scan
 ```
+
+O vhost Matrix aceita corpos de até 32 MiB para o gateway de conteúdo e o painel Bayes. O core limita o treinamento a 20 MiB por lote e 5 MiB por arquivo EML.
 
 A última chamada, sem corpo e fora da allowlist, deve falhar. No host autorizado, um `GET` de preflight recebe `404` do gateway após passar pelo Nginx; isso prova a rota e a allowlist sem enviar uma mensagem.

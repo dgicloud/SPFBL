@@ -77,7 +77,7 @@ def matching_server(path, hostname):
     return matches[0]
 
 
-def inject_include(path, hostname="matrix.hadcloud.srv.br"):
+def inject_include(path, hostname):
     actual_path = os.path.realpath(path)
     matched = matching_server(actual_path, hostname)
     if not matched:
@@ -135,7 +135,8 @@ def find_enabled_vhost(hostname):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--hostname", default="matrix.hadcloud.srv.br")
+    parser.add_argument("--hostname", required=True,
+                        help="hostname do vhost HTTPS do painel SPFBL")
     parser.add_argument("--vhost")
     parser.add_argument("--restore", action="store_true")
     args = parser.parse_args(argv)

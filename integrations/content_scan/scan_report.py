@@ -23,7 +23,8 @@ SAFE_FEEDBACK_STATUSES = {
     "client_feedback_disabled", "envelope_ineligible", "source_ip_invalid",
     "source_ip_not_global", "recipient_count", "ticket_missing", "ticket_invalid",
     "ticket_status_mismatch", "score_unavailable", "below_spam_threshold",
-    "high_confidence_spam", "bayes_spam_probability_95", "accepted", "unchanged",
+    "high_confidence_spam", "bayes_spam_probability_95", "native_bayes_confident_spam",
+    "native_bayes_unavailable", "accepted", "unchanged",
     "ticket_expired", "timeout_uncertain", "transport_failed", "response_invalid",
     "rejected", "target_invalid",
 }
@@ -31,7 +32,14 @@ SAFE_TICKET_STATUSES = {
     "ticket_present", "ticket_missing", "ticket_invalid", "ticket_ambiguous",
     "ticket_not_issued", "header_unavailable", "unavailable",
 }
-SAFE_FEEDBACK_POLICIES = {"high_confidence_spam", "bayes_spam_probability_95"}
+SAFE_FEEDBACK_POLICIES = {"high_confidence_spam", "bayes_spam_probability_95",
+                          "native_bayes_confident_spam"}
+SAFE_NATIVE_BAYES_STATUSES = {
+    "legacy_unknown", "disabled", "spam", "ham", "inconclusive", "not_allowed",
+    "timeout", "unavailable", "invalid_message", "message_too_large",
+    "target_invalid", "source_ip_invalid", "invalid_response", "core_error",
+    "internal_error",
+}
 ANTIVIRUS_SYMBOLS = {"CLAM_VIRUS", "CLAM_VIRUS_FAIL",
                      "CLAM_VIRUS_ENCRYPTED", "CLAM_VIRUS_MACRO"}
 SAFE_AUTOLEARN_REASONS = {
@@ -91,12 +99,15 @@ def report(lines, sample_limit=SAMPLE_LIMIT):
                                "spfbl": {"ticket_status": Counter(),
                                          "feedback": Counter(),
                                          "policy": Counter()},
+                               "native_bayes": Counter(),
                                "bayes_symbols": Counter(),
                                "antivirus_symbols": Counter(), "metrics": {
                                    key: deque(maxlen=sample_limit) for key in
                                    ("scan_ms", "queue_ms", "legacy_intake_and_queue_ms", "intake_ms",
                                     "latency_ms", "score", "bayes_ham_probability",
-                                    "bayes_spam_probability")}}
+                                    "bayes_spam_probability", "native_bayes_latency_ms",
+                                    "native_bayes_spam_probability",
+                                    "native_bayes_known_features")}}
         group = clients[client]
         event = item["event"]
         group["events"][event] += 1
@@ -106,8 +117,11 @@ def report(lines, sample_limit=SAMPLE_LIMIT):
             group["outcomes"].setdefault(event, Counter())[reason] += 1
         if event == "scan_complete":
             action = item.get("action")
-            group["actions"][action if isinstance(action, str) and action in ACTIONS
-                             else "other"] += 1
+            if item.get("engine") == "spfbl_native_bayes" and action is None:
+                group["actions"]["not_applicable"] += 1
+            else:
+                group["actions"][action if isinstance(action, str) and action in ACTIONS
+                                 else "other"] += 1
             symbols = item.get("symbols")
             if isinstance(symbols, list):
                 for symbol in ("BAYES_HAM", "BAYES_SPAM"):
@@ -161,11 +175,20 @@ def report(lines, sample_limit=SAMPLE_LIMIT):
             elif policy not in SAFE_FEEDBACK_POLICIES:
                 policy = "other"
             group["spfbl"]["policy"][policy] += 1
+            native_status = item.get("native_bayes_status")
+            if "native_bayes_status" not in item:
+                native_status = "legacy_unknown"
+            elif not isinstance(native_status, str) or native_status not in SAFE_NATIVE_BAYES_STATUSES:
+                native_status = "other"
+            group["native_bayes"][native_status] += 1
         for key, values in group["metrics"].items():
             # Upload timing is distinct from classification timing. Failed
             # requests cannot contribute a successful scan score/latency.
             allowed = ((event == "scan_complete" and key in ("scan_ms", "score"))
                        or (event == "scan_complete" and key in ("bayes_ham_probability", "bayes_spam_probability"))
+                       or (event == "scan_complete" and key in ("native_bayes_latency_ms",
+                                                                 "native_bayes_spam_probability",
+                                                                 "native_bayes_known_features"))
                        or (event == "scan_complete" and key == "queue_ms" and item.get("timing_version") == 2)
                        or (event == "scan_complete" and key == "legacy_intake_and_queue_ms" and item.get("timing_version") != 2)
                        or (event == "message_queued" and key == "intake_ms" and item.get("timing_version") == 2)
@@ -176,9 +199,12 @@ def report(lines, sample_limit=SAMPLE_LIMIT):
             if key in ("bayes_ham_probability", "bayes_spam_probability"):
                 if not 0 <= value <= 100:
                     continue
+            elif key == "native_bayes_spam_probability" and not 0 <= value <= 1:
+                continue
             elif key != "score" and value < 0:
                 continue
-            if key == "score" or key in ("bayes_ham_probability", "bayes_spam_probability") or value >= 0:
+            if key == "score" or key in ("bayes_ham_probability", "bayes_spam_probability",
+                                          "native_bayes_spam_probability") or value >= 0:
                 values.append(value)
     return {"mode": "MONITOR", "ignored_lines": ignored,
             "metric_sample_limit_per_client": sample_limit,
@@ -194,6 +220,7 @@ def report(lines, sample_limit=SAMPLE_LIMIT):
                                              for key, counts in sorted(group["autolearn"].items())},
                                "spfbl": {key: dict(counts)
                                          for key, counts in sorted(group["spfbl"].items())},
+                               "native_bayes": dict(group["native_bayes"]),
                                "bayes_symbols": dict(group["bayes_symbols"]),
                                "antivirus_symbols": dict(group["antivirus_symbols"]),
                                "metrics": {key: summary(values) for key, values in group["metrics"].items()}}

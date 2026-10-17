@@ -1838,7 +1838,8 @@ public abstract class Filterable {
         RECIPIENT_SPOOFING,
         SENDER_SPOOFING,
         DOMAIN_INEXISTENT,
-        RECIPIENT_HACKED
+        RECIPIENT_HACKED,
+        CONTENT_BAYES_SPAM
     }
     
     public static Filter tryToGetFilter(String name) {

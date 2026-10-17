@@ -1,31 +1,30 @@
-# Gateway de conteúdo e Rspamd
+# Monitor de conteúdo SpamFox com Bayes nativo
 
-O gateway recebe cópias de mensagens que já foram aceitas pelo MTA, faz fila somente em RAM e encaminha ao Rspamd local. Ele nunca participa da resposta SMTP do cliente.
+Os coletores cPanel/Exim e Postfix enviam ao gateway uma cópia após a fila. O gateway mantém a mensagem em RAM, consulta o classificador Bayes nativo do core SPFBL e registra somente estado, probabilidade, quantidade de atributos e latência. Essa observação não altera a entrega SMTP. Mensagens monitoradas não viram rótulos de treinamento automaticamente; o aprendizado supervisionado ocorre ao enviar `.eml` rotulado SPAM ou HAM no painel administrativo nativo.
 
-## VM central
+## Instalar ou atualizar na VM central
 
-Requisitos: Ubuntu 24.04, core SPFBL nativo ativo, Nginx funcional para `antispam.exemplo.com` e `/etc/had-antispam/allowed-cpanels.txt` contendo os IPs públicos dos MTAs.
+Requisitos: Ubuntu 24.04, core SPFBL nativo ativo, Nginx funcional e `/etc/had-antispam/allowed-cpanels.txt` com os IPs públicos dos MTAs.
+
+Instalação inicial:
 
 ```bash
 cd /opt/spfbl
-bash packaging/rspamd/install-spamfox-rspamd.sh install
+bash packaging/content-scan/install-gateway.sh --hostname matrix.example.com
 ```
 
-O instalador configura Rspamd + Redis no loopback, instala o gateway em `127.0.0.1:11335`, adiciona a rota Nginx e valida `rspamadm configtest`, Nginx e systemd.
+Atualizar o gateway existente preservando os perfis de cliente:
 
-## Rota HTTPS e Nginx
+```bash
+cd /caminho/do/repositorio
+bash packaging/content-scan/update-gateway.sh
+```
 
-| Rota | Destino | Acesso |
-|---|---|---|
-| `POST /internal/sfox/scan` | `127.0.0.1:11335/v1/scan` | Apenas IPs em `allowed-cpanels.txt` |
-| `/` em `matrix.exemplo.com` | painel SPFBL em `127.0.0.1:8080` | HTTPS público, raiz redireciona para `/pt/` |
-| `https://antispam.exemplo.com/` | WebUI Rspamd | conforme autenticação do vhost |
+O serviço escuta apenas em `127.0.0.1:11335`. O Nginx aceita `POST /internal/sfox/scan` somente dos IPs na allowlist e encaminha para `127.0.0.1:11335/v1/scan`. Os coletores não recebem credenciais por MTA; a admissão é feita pela origem IP, allowlist do Nginx e perfil local.
 
-O snippet `packaging/content-scan/had-sfox-scan-location.conf` contém os limites de corpo, timeouts e `proxy_request_buffering off`. O vhost principal está em `packaging/native/nginx-matrix.conf` e inclui o snippet no servidor HTTPS de `matrix.exemplo.com`.
+## Autorizar um MTA
 
-## Clientes e aprendizagem
-
-A admissão ocorre por IP: o gateway cruza o IP remoto com a allowlist usada pelo SPFBL. Não há ID de cPanel, token ou credencial por MTA. Para criar um perfil explícito e sincronizar Nginx:
+O IP precisa constar na allowlist central e corresponder a um cliente `SPFBL` cadastrado no core. Crie um perfil do monitor e habilite a observação nativa:
 
 ```bash
 had-content-scan-clients add --cidr IP_PUBLICO/32
@@ -33,13 +32,33 @@ had-content-scan-sync-allowlist
 nginx -t && systemctl reload nginx
 ```
 
-O Rspamd aprende somente amostras elegíveis e de alta confiança. Quando o perfil habilita feedback SPFBL e existe ticket válido, o gateway pode emitir `SPAM <ticket>` ao core; ele envia ticket, não corpo, assunto ou score. A análise posterior não bloqueia a primeira mensagem: ela melhora classificação e reputação das próximas.
-
-## Operação
+Perfis novos já habilitam a consulta Bayes nativa. Para perfis existentes:
 
 ```bash
-systemctl status rspamd redis-server had-content-scan-gateway
-journalctl -u had-content-scan-gateway -f
+had-content-scan-clients native-bayes PERFIL --enable
 ```
 
-A WebUI nativa do Rspamd é o local para analisar e ensinar manualmente arquivos `.eml`. Os corpos enviados pelo gateway não são persistidos pelo gateway depois da análise.
+No ADMIN local do core, autorize o mesmo CIDR para pontuação passiva:
+
+```bash
+printf 'BAYES CLIENT ADD IP_PUBLICO/32\n' | nc 127.0.0.1 9875
+```
+
+`BAYES CLIENT ADD` só libera observação. A lista separada `BAYES DECISION` continua vazia por padrão; nenhum resultado do monitor altera decisões de entrega.
+
+## Aprendizado e feedback
+
+O Bayes nativo aprende apenas com mensagens `.eml` que recebem rótulo explícito no painel `/admin/bayes/` ou pelo comando administrativo `BAYES LEARN SPAM|HAM` após colocar os arquivos na pasta de aprendizagem. O gateway não transforma suas próprias previsões em rótulos. Com feedback habilitado no perfil, uma previsão SPAM de pelo menos 99,5% pode enviar `SPAM <ticket>` ao core, mas somente quando o ticket SPFBL é válido e coincide com a mensagem, a origem é pública e há exatamente um destinatário. Isso alimenta a reputação SPFBL; não altera o treinamento Bayes.
+
+O gateway não persiste o `.eml`; a fila é limitada e fica em RAM. O log não inclui endereços, assunto ou corpo.
+
+## Verificar operação
+
+```bash
+systemctl status had-content-scan-gateway
+journalctl -u had-content-scan-gateway -f
+journalctl -u had-content-scan-gateway --since '24 hours ago' --no-pager \
+  | had-content-scan-report -
+```
+
+Em `scan_complete`, confira `engine=spfbl_native_bayes` e `native_bayes_status`. `spam` ou `ham` indica previsão confiante; `inconclusive` significa que o modelo ainda não tem evidência suficiente para o conteúdo; `not_allowed` indica que falta cadastrar o CIDR em `BAYES CLIENT SHOW`.

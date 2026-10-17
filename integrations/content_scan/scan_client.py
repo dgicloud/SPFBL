@@ -150,9 +150,9 @@ def normalize_metadata(queue_id=None, sender=None, recipients=None, client_ip=No
     if AUTH_USER_RE.fullmatch(auth_user):
         metadata["user"] = auth_user
 
-    # Bayes learning is message-level; an Exim system-filter copy may omit or
+    # Bayes scoring is message-level; an Exim system-filter copy may omit or
     # fail to preserve recipient metadata. Keep only the queue/sender/source/
-    # HELO and unauthenticated gates. SPFBL feedback applies the stricter
+    # HELO and unauthenticated gates. SPFBL ticket feedback applies the stricter
     # single-recipient rule separately.
     exclusion_reasons = []
     if not metadata.get("queue_id"):
@@ -171,8 +171,8 @@ def normalize_metadata(queue_id=None, sender=None, recipients=None, client_ip=No
         exclusion_reasons.append("non_inbound_smtp_port")
     if auth_present:
         exclusion_reasons.append("authenticated")
-    metadata["autolearn_eligible"] = not exclusion_reasons
-    metadata["autolearn_ineligibility_reason"] = (
+    metadata["feedback_eligible"] = not exclusion_reasons
+    metadata["feedback_ineligibility_reason"] = (
         ",".join(exclusion_reasons) if exclusion_reasons else "eligible")
     return metadata
 
@@ -180,8 +180,8 @@ def normalize_metadata(queue_id=None, sender=None, recipients=None, client_ip=No
 def require_received_port_for_bsmtp(metadata, bsmtp_envelope):
     """Fail closed for Exim BSMTP scans when the trusted ingress port is absent."""
     if bsmtp_envelope and metadata.get("received_port") is None:
-        metadata["autolearn_eligible"] = False
-        metadata["autolearn_ineligibility_reason"] = "received_port_missing"
+        metadata["feedback_eligible"] = False
+        metadata["feedback_ineligibility_reason"] = "received_port_missing"
     return metadata
 
 

@@ -76,6 +76,7 @@ import static net.spfbl.core.Regex.isHostname;
 import static net.spfbl.core.Regex.isValidIP;
 import net.spfbl.data.Abuse;
 import net.spfbl.data.CIDR;
+import net.spfbl.data.ContentBayes;
 import net.spfbl.data.DKIM;
 import net.spfbl.data.Dictionary;
 import net.spfbl.data.Generic;
@@ -162,6 +163,7 @@ public abstract class Server extends Thread {
         URI.load();
         net.spfbl.data.Domain.load();
         Recipient.load();
+        ContentBayes.load();
         System.gc();
     }
     
@@ -265,6 +267,7 @@ public abstract class Server extends Thread {
         net.spfbl.data.Domain.store();
         Reputation.refreshTime();
         Recipient.store();
+        ContentBayes.store();
         System.gc();
     }
     

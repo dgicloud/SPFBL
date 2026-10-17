@@ -8,10 +8,7 @@ import math
 import re
 import socket
 
-SPAM_SCORE_THRESHOLD = 15.0
-BAYES_SPAM_FEEDBACK_MIN_SCORE = 4.0
-BAYES_SPAM_FEEDBACK_MIN_PROBABILITY = 95.0
-BAYES_SPAM_FEEDBACK_ACTIONS = frozenset(("greylist", "add header", "reject"))
+NATIVE_BAYES_SPAM_THRESHOLD = 0.995
 TICKET_RE = re.compile(r"^[A-Za-z0-9_-]{44,512}$")
 QUALIFIERS = frozenset(("PASS", "WHITE", "FLAG", "HOLD", "SOFTFAIL", "NEUTRAL", "NONE", "FAIL"))
 MAX_RESPONSE_BYTES = 2048
@@ -22,7 +19,7 @@ def feedback_eligibility(metadata, ticket_record, result, feedback_enabled):
     metadata = metadata or {}
     if feedback_enabled is not True:
         return None, "client_feedback_disabled"
-    if metadata.get("autolearn") is not True or metadata.get("autolearn_eligible") is not True:
+    if metadata.get("feedback_eligible") is not True:
         return None, "envelope_ineligible"
     try:
         source_ip = ipaddress.ip_address(metadata.get("ip", ""))
@@ -49,34 +46,17 @@ def feedback_eligibility(metadata, ticket_record, result, feedback_enabled):
     if metadata.get("ticket_status_match") is not True:
         return None, "ticket_status_mismatch"
 
-    score = result.get("score") if isinstance(result, dict) else None
-    required_score = result.get("required_score") if isinstance(result, dict) else None
-    if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(score):
-        return None, "score_unavailable"
-    threshold = SPAM_SCORE_THRESHOLD
-    if (not isinstance(required_score, bool)
-            and isinstance(required_score, (int, float))
-            and math.isfinite(required_score)):
-        threshold = max(threshold, float(required_score))
-    if score >= threshold:
-        return "spam", "high_confidence_spam"
-
-    symbols = result.get("symbols") if isinstance(result, dict) else None
-    action = result.get("action") if isinstance(result, dict) else None
-    probability = result.get("bayes_spam_probability") if isinstance(result, dict) else None
-    bayes_spam_candidate = (
-        score >= BAYES_SPAM_FEEDBACK_MIN_SCORE
-        and action in BAYES_SPAM_FEEDBACK_ACTIONS
-        and isinstance(symbols, (list, tuple, set, frozenset))
-        and "BAYES_SPAM" in symbols
-        and not isinstance(probability, bool)
-        and isinstance(probability, (int, float))
-        and math.isfinite(probability)
-        and probability >= BAYES_SPAM_FEEDBACK_MIN_PROBABILITY
-    )
-    if not bayes_spam_candidate:
+    result = result if isinstance(result, dict) else {}
+    probability = result.get("spam_probability")
+    if (result.get("status") == "spam"
+            and not isinstance(probability, bool)
+            and isinstance(probability, (int, float))
+            and math.isfinite(probability)
+            and probability >= NATIVE_BAYES_SPAM_THRESHOLD):
+        return "spam", "native_bayes_confident_spam"
+    if result.get("status") in ("spam", "ham", "inconclusive", "disabled"):
         return None, "below_spam_threshold"
-    return "spam", "bayes_spam_probability_95"
+    return None, "native_bayes_unavailable"
 
 
 def submit_spam_ticket(ticket, host="127.0.0.1", port=9877, timeout=2.0,

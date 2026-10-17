@@ -1,5 +1,6 @@
 param(
     [Parameter(Mandatory = $true)][string]$BundleDirectory,
+    [string]$BayesCorpusDirectory = "",
     [switch]$EmptyData,
     [switch]$LoadTest,
     [ValidateRange(1, 60)][int]$LoadDurationSeconds = 5
@@ -28,6 +29,34 @@ foreach ($directory in @("data", "history", "logs")) {
 if (-not $EmptyData) {
     Copy-Item -Path (Join-Path $Runtime "data-seed\*") -Destination (Join-Path $TestRoot "data") -Recurse
 }
+if ($BayesCorpusDirectory) {
+    $CorpusRoot = (Resolve-Path $BayesCorpusDirectory).Path
+    foreach ($label in @("spam", "ham")) {
+        $TrainSource = Join-Path $CorpusRoot "train\$label"
+        $TestSource = Join-Path $CorpusRoot "test\$label"
+        if (-not (Test-Path -LiteralPath $TrainSource -PathType Container) -or
+                -not (Test-Path -LiteralPath $TestSource -PathType Container)) {
+            throw "Bayes corpus must contain train/$label and test/$label directories."
+        }
+        $TrainTarget = Join-Path $TestRoot "learn\$label"
+        $TestTarget = Join-Path $TestRoot "learn\test"
+        New-Item -ItemType Directory -Force -Path $TrainTarget, $TestTarget | Out-Null
+        Get-ChildItem -LiteralPath $TrainSource -Filter "*.eml" -File | Copy-Item -Destination $TrainTarget
+        Get-ChildItem -LiteralPath $TestSource -Filter "*.eml" -File | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $TestTarget ("$label-" + $_.Name))
+        }
+    }
+}
+if ($BayesCorpusDirectory -and $EmptyData) {
+    # Give the SPAMD wire smoke test one deterministic, locally trusted SMTP
+    # identity so content classification is reached without seeding production
+    # reputation data or depending on external DNS.
+    Copy-Item -LiteralPath (Join-Path $Runtime "data-seed\tld.set") -Destination (Join-Path $TestRoot "data\tld.set")
+    $NowMillis = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    $CoreTime = [int][Math]::Floor($NowMillis / 4294967296.0)
+    "PUT example.net 1577836800000 true $CoreTime" | Set-Content -Encoding ascii -Path (Join-Path $TestRoot "data\domain.txt")
+    "PUT 8.8.8.8 mail.example.net $CoreTime" | Set-Content -Encoding ascii -Path (Join-Path $TestRoot "data\fqdn.txt")
+}
 $Config = Get-Content -Raw (Join-Path $Bundle "native\spfbl.conf")
 $Config = $Config.Replace("/var/log/had-antispam/", "/work/logs/")
 # Keep the isolated smoke test offline: don't start public HTTP or P2P services.
@@ -44,10 +73,56 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Could not start the native core smoke container." }
     $ContainerIp = "198.18.250.10"
     Write-Output "Isolated core address: $ContainerIp"
-    docker run --rm --network $Network `
+    # Prime the unknown-client cache; the later SPAMD test registers this same
+    # address and verifies that the core notices the client-table update.
+    docker run --rm --network $Network --ip 198.18.250.2 `
         --mount "type=bind,src=$Root,dst=/source,readonly" `
         --entrypoint python python:3.12-slim /source/packaging/native/wait-core.py $ContainerIp 9877 60
     if ($LASTEXITCODE -ne 0) { throw "Native core did not become ready." }
+    if ($BayesCorpusDirectory) {
+        $BayesSmokeOutput = docker run --rm --network "container:$Container" `
+            --mount "type=bind,src=$Root,dst=/source,readonly" `
+            --mount "type=bind,src=$TestRoot,dst=/work,readonly" `
+            --entrypoint python python:3.12-slim /source/packaging/native/bayes-admin-smoke.py 127.0.0.1 9875 --train-corpus
+    } else {
+        $BayesSmokeOutput = docker run --rm --network "container:$Container" `
+            --mount "type=bind,src=$Root,dst=/source,readonly" `
+            --entrypoint python python:3.12-slim /source/packaging/native/bayes-admin-smoke.py 127.0.0.1 9875
+    }
+    $BayesExitCode = $LASTEXITCODE
+    $BayesSmokeOutput | ForEach-Object { Write-Output $_ }
+    $BayesCandidate = $null
+    if ($BayesCorpusDirectory) {
+        $CandidateLine = $BayesSmokeOutput | Where-Object { $_ -match '^SPAMD_CANDIDATE=' } | Select-Object -Last 1
+        if ($CandidateLine -match '^SPAMD_CANDIDATE=(spam-[A-Za-z0-9._-]+\.eml)$') {
+            $BayesCandidate = $Matches[1]
+        } else {
+            throw "Native Bayes smoke did not return a safe SPAMD positive-control filename."
+        }
+    }
+    if ($BayesExitCode -ne 0) { throw "Native Bayes ADMIN protocol smoke failed." }
+    if ($BayesCorpusDirectory) {
+        docker run --rm --network $Network --ip 198.18.250.2 `
+            --mount "type=bind,src=$Root,dst=/source,readonly" `
+            --mount "type=bind,src=$TestRoot,dst=/work,readonly" `
+            --entrypoint python python:3.12-slim /source/packaging/native/bayes-spamd-smoke.py `
+            $ContainerIp 9877 "/work/learn/test/$BayesCandidate" /work/learn/test
+        if ($LASTEXITCODE -ne 0) { throw "Native Bayes SPAMD protocol smoke failed." }
+        $BayesHamCandidate = Get-ChildItem -LiteralPath (Join-Path $TestRoot "learn\test") -Filter "ham-*.eml" -File |
+            Select-Object -First 1 -ExpandProperty Name
+        if (-not $BayesHamCandidate) { throw "Native Bayes test corpus has no HAM control." }
+        docker run --rm --network "container:$Container" `
+            --mount "type=bind,src=$Root,dst=/source,readonly" `
+            --mount "type=bind,src=$TestRoot,dst=/work,readonly" `
+            --entrypoint python python:3.12-slim /source/packaging/native/bayes-monitor-smoke.py `
+            127.0.0.1 9877 "/work/learn/test/$BayesCandidate" "/work/learn/test/$BayesHamCandidate" `
+            198.18.250.2 $ContainerIp
+        if ($LASTEXITCODE -ne 0) { throw "Native Bayes passive monitor protocol smoke failed." }
+        docker run --rm --network "container:$Container" `
+            --mount "type=bind,src=$Root,dst=/source,readonly" `
+            --entrypoint python python:3.12-slim /source/packaging/native/bayes-admin-smoke.py 127.0.0.1 9875 --cleanup
+        if ($LASTEXITCODE -ne 0) { throw "Native Bayes SPAMD test cleanup failed." }
+    }
     docker run --rm --network $Network `
         --mount "type=bind,src=$Root,dst=/source,readonly" `
         --entrypoint python python:3.12-slim /source/packaging/native/query-smoke.py $ContainerIp 9877

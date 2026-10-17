@@ -63,6 +63,18 @@ def _atomic_write(path, config):
             os.unlink(temporary)
 
 
+def _remove_legacy_autolearn(config):
+    clients = config.get("clients", {}) if isinstance(config, dict) else {}
+    if not isinstance(clients, dict):
+        return False
+    changed = False
+    for client in clients.values():
+        if isinstance(client, dict) and "autolearn_enabled" in client:
+            del client["autolearn_enabled"]
+            changed = True
+    return changed
+
+
 def _profile_id_for_cidrs(requested):
     network = requested[0]
     address = str(network.network_address).replace(".", "-").replace(":", "-")
@@ -71,7 +83,7 @@ def _profile_id_for_cidrs(requested):
 
 
 def add_client(config_path, allowlist_path, client_id, cidr_values, replace=False,
-               autolearn_enabled=True, spfbl_feedback_enabled=False):
+               spfbl_feedback_enabled=False):
     requested = [ipaddress.ip_network(value, strict=False) for value in cidr_values]
     if not requested or any(item.prefixlen == 0 for item in requested):
         raise ValueError("provide at least one specific source CIDR; /0 is not allowed")
@@ -84,6 +96,7 @@ def add_client(config_path, allowlist_path, client_id, cidr_values, replace=Fals
             config = json.load(stream)
     else:
         config = {"clients": {}}
+    _remove_legacy_autolearn(config)
     clients = config.setdefault("clients", {})
     if client_id in clients and not replace:
         raise ValueError("profile already exists; it is already registered")
@@ -101,7 +114,7 @@ def add_client(config_path, allowlist_path, client_id, cidr_values, replace=Fals
     clients[client_id] = {
         "allowed_cidrs": sorted(set(str(item) for item in requested)),
         "enabled": True,
-        "autolearn_enabled": bool(autolearn_enabled),
+        "native_bayes_enabled": True,
         "spfbl_feedback_enabled": bool(spfbl_feedback_enabled),
     }
     _atomic_write(config_path, config)
@@ -118,18 +131,6 @@ def disable_client(config_path, client_id):
     _atomic_write(config_path, config)
 
 
-def set_autolearn(config_path, client_id, enabled):
-    with open(config_path, "r") as stream:
-        config = json.load(stream)
-    client = config.get("clients", {}).get(client_id)
-    if not isinstance(client, dict):
-        raise ValueError("client does not exist")
-    if enabled and client.get("enabled", True) is not True:
-        raise ValueError("cannot enable autolearn for a disabled client")
-    client["autolearn_enabled"] = bool(enabled)
-    _atomic_write(config_path, config)
-
-
 def set_spfbl_feedback(config_path, client_id, enabled):
     with open(config_path, "r") as stream:
         config = json.load(stream)
@@ -138,9 +139,21 @@ def set_spfbl_feedback(config_path, client_id, enabled):
         raise ValueError("client does not exist")
     if enabled and client.get("enabled", True) is not True:
         raise ValueError("cannot enable SPFBL feedback for a disabled client")
-    if enabled and client.get("autolearn_enabled") is not True:
-        raise ValueError("enable native Rspamd autolearn before SPFBL feedback")
+    if enabled and client.get("native_bayes_enabled") is not True:
+        raise ValueError("enable native SPFBL Bayes before SPFBL feedback")
     client["spfbl_feedback_enabled"] = bool(enabled)
+    _atomic_write(config_path, config)
+
+
+def set_native_bayes(config_path, client_id, enabled):
+    with open(config_path, "r") as stream:
+        config = json.load(stream)
+    client = config.get("clients", {}).get(client_id)
+    if not isinstance(client, dict):
+        raise ValueError("client does not exist")
+    if enabled and client.get("enabled", True) is not True:
+        raise ValueError("cannot enable native Bayes for a disabled client")
+    client["native_bayes_enabled"] = bool(enabled)
     _atomic_write(config_path, config)
 
 
@@ -154,50 +167,48 @@ def main(argv=None):
     add.add_argument("--cidr", action="append", required=True)
     add.add_argument("--replace", action="store_true",
                      help="replace an existing profile with the same internal name")
-    learning = add.add_mutually_exclusive_group()
-    learning.add_argument("--autolearn", dest="autolearn", action="store_true",
-                          help="enable conservative native Bayes autolearn (default)")
-    learning.add_argument("--no-autolearn", dest="autolearn", action="store_false",
-                          help="disable Bayes autolearn for this profile")
-    add.set_defaults(autolearn=True)
     add.add_argument("--spfbl-feedback", action="store_true",
                      help="envia feedback SPAM de alta confiança ao ticket SPFBL correspondente")
     disable = commands.add_parser("disable", help="disable a MTA source-IP profile")
     disable.add_argument("client_id")
-    autolearn = commands.add_parser("autolearn", help="enable or disable automatic Bayes learning for a client")
-    autolearn.add_argument("client_id")
-    learn_switch = autolearn.add_mutually_exclusive_group(required=True)
-    learn_switch.add_argument("--enable", action="store_true")
-    learn_switch.add_argument("--disable", action="store_true")
     feedback = commands.add_parser("spfbl-feedback", help="enable or disable high-confidence SPAM feedback to SPFBL")
     feedback.add_argument("client_id")
     feedback_switch = feedback.add_mutually_exclusive_group(required=True)
     feedback_switch.add_argument("--enable", action="store_true")
     feedback_switch.add_argument("--disable", action="store_true")
+    native_bayes = commands.add_parser("native-bayes", help="enable or disable native SPFBL Bayes observation for a client")
+    native_bayes.add_argument("client_id")
+    native_bayes_switch = native_bayes.add_mutually_exclusive_group(required=True)
+    native_bayes_switch.add_argument("--enable", action="store_true")
+    native_bayes_switch.add_argument("--disable", action="store_true")
     args = parser.parse_args(argv)
     if args.command is None:
-        parser.error("choose add, disable, autolearn or spfbl-feedback")
+        parser.error("choose add, disable, spfbl-feedback or native-bayes")
     if hasattr(os, "geteuid") and os.geteuid() != 0:
         parser.error("run as root")
     try:
+        if os.path.exists(args.config):
+            with open(args.config, "r") as stream:
+                current_config = json.load(stream)
+            if _remove_legacy_autolearn(current_config):
+                _atomic_write(args.config, current_config)
         if args.command == "add":
             client_id = add_client(args.config, args.allowlist, args.client_id,
-                                   args.cidr, args.replace, args.autolearn,
-                                   args.spfbl_feedback)
+                                   args.cidr, args.replace, args.spfbl_feedback)
             print("profile=" + client_id)
             print("authorized_cidrs=" + ",".join(args.cidr))
             print("MTA admission uses the Nginx allowlist and this source CIDR; no client ID or token is installed on the MTA.")
         elif args.command == "disable":
             disable_client(args.config, args.client_id)
             print("disabled=" + args.client_id)
-        elif args.command == "autolearn":
-            enabled = args.enable
-            set_autolearn(args.config, args.client_id, enabled)
-            print("autolearn_%s=%s" % ("enabled" if enabled else "disabled", args.client_id))
-        else:
+        elif args.command == "spfbl-feedback":
             enabled = args.enable
             set_spfbl_feedback(args.config, args.client_id, enabled)
             print("spfbl_feedback_%s=%s" % ("enabled" if enabled else "disabled", args.client_id))
+        else:
+            enabled = args.enable
+            set_native_bayes(args.config, args.client_id, enabled)
+            print("native_bayes_%s=%s" % ("enabled" if enabled else "disabled", args.client_id))
     except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
         parser.error(str(exc))
     return 0

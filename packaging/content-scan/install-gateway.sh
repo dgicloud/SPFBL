@@ -9,8 +9,25 @@ LIBDIR=/usr/local/lib/had-content-scan
 SERVICE=/etc/systemd/system/had-content-scan-gateway.service
 NGINX_LOCATION=/etc/nginx/snippets/had-sfox-scan-location.conf
 NGINX_ALLOW=/etc/nginx/snippets/had-sfox-scan-allow.conf
+MATRIX_HOSTNAME=""
 
 fail() { printf 'HAD content scan: %s\n' "$*" >&2; exit 1; }
+while (($#)); do
+    case "$1" in
+        --hostname)
+            (($# >= 2)) || fail 'informe o hostname após --hostname.'
+            MATRIX_HOSTNAME=$2
+            shift 2
+            ;;
+        --help|-h)
+            printf 'Uso: bash packaging/content-scan/install-gateway.sh --hostname matrix.example.com\n'
+            exit 0
+            ;;
+        *) fail "parâmetro desconhecido: $1" ;;
+    esac
+done
+[[ "$MATRIX_HOSTNAME" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] \
+    || fail 'informe um hostname HTTPS válido com --hostname.'
 [[ $(id -u) -eq 0 ]] || fail 'execute como root.'
 [[ -r /etc/os-release ]] || fail 'não consegui identificar o sistema operacional.'
 . /etc/os-release
@@ -19,6 +36,7 @@ fail() { printf 'HAD content scan: %s\n' "$*" >&2; exit 1; }
 [[ -r "$ROOT/integrations/content_scan/scan_gateway.py" ]] || fail 'scan_gateway.py ausente.'
 [[ -r "$ROOT/integrations/content_scan/scan_client.py" ]] || fail 'scan_client.py ausente.'
 [[ -r "$ROOT/integrations/content_scan/spfbl_feedback.py" ]] || fail 'spfbl_feedback.py ausente.'
+[[ -r "$ROOT/integrations/content_scan/spfbl_bayes.py" ]] || fail 'spfbl_bayes.py ausente.'
 [[ -r "$ROOT/integrations/content_scan/manage_clients.py" ]] || fail 'manage_clients.py ausente.'
 [[ -r "$ROOT/integrations/content_scan/scan_report.py" ]] || fail 'scan_report.py ausente.'
 [[ -r "$ROOT/integrations/content_scan/install_nginx_location.py" ]] || fail 'gerenciador Nginx ausente.'
@@ -28,18 +46,16 @@ fail() { printf 'HAD content scan: %s\n' "$*" >&2; exit 1; }
 [[ ! -e "$LIBDIR" ]] || fail "$LIBDIR já existe; instalação cancelada para preservar arquivos atuais."
 [[ ! -e /usr/local/sbin/had-content-scan-clients && ! -e /usr/local/sbin/had-content-scan-sync-allowlist ]] || fail 'atalhos de administração já existem; arquivos preservados.'
 [[ ! -e /usr/local/sbin/had-content-scan-report && ! -L /usr/local/sbin/had-content-scan-report ]] || fail 'atalho de relatório já existe; arquivo preservado.'
-systemctl is-active --quiet rspamd.service || fail 'Rspamd não está ativo.'
-curl -fsS --max-time 2 http://127.0.0.1:11333/ping | grep -qi pong || fail 'Rspamd normal worker não respondeu.'
-rspamd_config_test=$(rspamadm configtest 2>&1) || fail "$rspamd_config_test"
+systemctl is-active --quiet had-antispam-core.service || fail 'core SPFBL nativo não está ativo.'
 nginx -t >/dev/null 2>&1 || fail 'Nginx atual falha nginx -t; nada foi instalado.'
 
 ALLOWLIST_COUNT=$(grep -cvE '^\s*(#|$)' "$ALLOWLIST" || true)
 [[ "$ALLOWLIST_COUNT" -gt 0 ]] || fail 'allowlist de servidores de e-mail está vazia.'
-VHOST=$(python3 - "$ROOT/integrations/content_scan" <<'PY'
+VHOST=$(python3 - "$ROOT/integrations/content_scan" "$MATRIX_HOSTNAME" <<'PY'
 import sys
 sys.path.insert(0, sys.argv[1])
 from install_nginx_location import find_enabled_vhost
-print(find_enabled_vhost("matrix.hadcloud.srv.br"))
+print(find_enabled_vhost(sys.argv[2]))
 PY
 )
 VHOST_REAL=$(readlink -f "$VHOST")
@@ -84,6 +100,7 @@ install -d -o root -g root -m 0755 /etc/nginx/snippets
 install -o root -g root -m 0644 "$ROOT/integrations/content_scan/scan_gateway.py" "$LIBDIR/scan_gateway.py"
 install -o root -g root -m 0644 "$ROOT/integrations/content_scan/scan_client.py" "$LIBDIR/scan_client.py"
 install -o root -g root -m 0644 "$ROOT/integrations/content_scan/spfbl_feedback.py" "$LIBDIR/spfbl_feedback.py"
+install -o root -g root -m 0644 "$ROOT/integrations/content_scan/spfbl_bayes.py" "$LIBDIR/spfbl_bayes.py"
 install -o root -g root -m 0755 "$ROOT/integrations/content_scan/manage_clients.py" "$LIBDIR/manage_clients.py"
 install -o root -g root -m 0755 "$ROOT/integrations/content_scan/scan_report.py" "$LIBDIR/scan_report.py"
 install -o root -g root -m 0755 "$ROOT/integrations/content_scan/sync_nginx_allowlist.py" "$LIBDIR/sync_nginx_allowlist.py"
@@ -97,7 +114,7 @@ if [[ ! -e "$CLIENT_CONFIG" ]]; then
 fi
 
 python3 "$LIBDIR/sync_nginx_allowlist.py" --allowlist "$ALLOWLIST" --output "$NGINX_ALLOW"
-python3 "$LIBDIR/install_nginx_location.py" --hostname matrix.hadcloud.srv.br
+python3 "$LIBDIR/install_nginx_location.py" --hostname "$MATRIX_HOSTNAME"
 systemctl daemon-reload
 systemctl enable --now had-content-scan-gateway.service
 for attempt in $(seq 1 20); do
@@ -115,4 +132,4 @@ ln -s "$LIBDIR/scan_report.py" /usr/local/sbin/had-content-scan-report
 trap - EXIT
 printf 'Gateway ativo em 127.0.0.1:11335; Nginx aceita HTTPS somente dos IPs de MTA autorizados.\n'
 printf 'Fila: até 4 mensagens aguardando e 2 workers; payloads ficam somente em RAM.\n'
-printf 'Rspamd continua em MONITOR; nenhuma decisão afeta Exim/Postfix.\n'
+printf 'O gateway consulta somente o Bayes nativo do core SPFBL; nenhuma decisão afeta Exim/Postfix.\n'

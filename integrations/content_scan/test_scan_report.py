@@ -135,6 +135,36 @@ class ScanReportTests(unittest.TestCase):
         self.assertEqual(metrics['legacy_intake_and_queue_ms']['max'], 1443)
         self.assertEqual(metrics['intake_ms']['max'], 1000)
 
+    def test_reports_native_core_bayes_observations_without_exposing_message_data(self):
+        result = scan_report.report(map(json.dumps, [
+            {'event': 'scan_complete', 'client_id': 'mx-pilot',
+             'engine': 'spfbl_native_bayes',
+             'native_bayes_status': 'spam', 'native_bayes_spam_probability': 0.999,
+             'native_bayes_known_features': 87, 'native_bayes_latency_ms': 4,
+             'subject': 'private subject'},
+            {'event': 'scan_complete', 'client_id': 'mx-pilot',
+             'engine': 'spfbl_native_bayes',
+             'native_bayes_status': 'ham', 'native_bayes_spam_probability': 0.001,
+             'native_bayes_known_features': 42, 'native_bayes_latency_ms': 6},
+            {'event': 'scan_complete', 'client_id': 'mx-pilot',
+             'engine': 'spfbl_native_bayes',
+             'native_bayes_status': 'private@example.com',
+             'native_bayes_spam_probability': 12,
+             'native_bayes_known_features': -1, 'native_bayes_latency_ms': True},
+            {'event': 'scan_complete', 'client_id': 'mx-pilot',
+             'engine': 'spfbl_native_bayes'},
+        ]))
+        group = result['clients']['mx-pilot']
+        self.assertEqual(group['native_bayes'], {
+            'spam': 1, 'ham': 1, 'other': 1, 'legacy_unknown': 1})
+        self.assertEqual(group['metrics']['native_bayes_spam_probability']['max'], 0.999)
+        self.assertEqual(group['metrics']['native_bayes_known_features']['max'], 87)
+        self.assertEqual(group['metrics']['native_bayes_latency_ms']['max'], 6)
+        self.assertEqual(group['recommended_actions'], {'not_applicable': 4})
+        rendered = json.dumps(result)
+        self.assertNotIn('private subject', rendered)
+        self.assertNotIn('private@example.com', rendered)
+
 
 if __name__ == '__main__':
     unittest.main()

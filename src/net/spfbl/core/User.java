@@ -43,6 +43,9 @@ import java.net.SocketException;
 import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.nio.ByteBuffer;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.nio.charset.Charset;
 import java.security.SecureRandom;
 import java.sql.Connection;
@@ -1287,18 +1290,18 @@ public class User implements Serializable, Comparable<User> {
         storeMap();
     }
     
-    public static void storeMap() {
+    public static boolean storeMap() {
         if (CHANGED) {
             try {
                 long time = System.currentTimeMillis();
                 HashMap<String,Object> map = getHashMap();
                 File fileTemp = new File("./data/.user.map");
+                boolean stored = false;
                 int attempts = 3;
                 while (attempts-- > 0) {
                     try (FileOutputStream outputStream = new FileOutputStream(fileTemp)) {
                         SerializationUtils.serialize(map, outputStream);
-                        // Atualiza flag de atualização.
-                        CHANGED = false;
+                        stored = true;
                         break;
                     } catch (ConcurrentModificationException ex) {
                         if (attempts == 0) {
@@ -1309,16 +1312,25 @@ public class User implements Serializable, Comparable<User> {
                     }
                 }
                 File file = new File("./data/user.map");
-                if (!file.exists() || file.delete()) {
-                    fileTemp.renameTo(file);
-                    Server.logStore(time, file);
-                } else {
-                    Server.logError("cannot store at " + file + " because this file is used by other process.");
+                if (!stored) {
+                    throw new IOException("cannot serialize " + file);
                 }
+                try {
+                    Files.move(fileTemp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING,
+                            StandardCopyOption.ATOMIC_MOVE);
+                } catch (AtomicMoveNotSupportedException ex) {
+                    Files.move(fileTemp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                }
+                // Só limpa a pendência depois que o arquivo final foi substituído.
+                CHANGED = false;
+                Server.logStore(time, file);
+                return true;
             } catch (Exception ex) {
                 Server.logError(ex);
+                return false;
             }
         }
+        return true;
     }
     
     public static void load() {
@@ -7618,6 +7630,15 @@ public class User implements Serializable, Comparable<User> {
                             resultReturn = "REJECT";
                         }
                         break;                            
+                    case CONTENT_BAYES_SPAM:
+                        if (actionRED == Action.FLAG) {
+                            resultReturn = "FLAG";
+                        } else if (actionRED == Action.HOLD) {
+                            resultReturn = "HOLD";
+                        } else {
+                            resultReturn = "REJECT";
+                        }
+                        break;
                     default:
                         Server.logError("filter not defined: " + resultFilter);
                         addAcceptable();

@@ -19,6 +19,7 @@ package net.spfbl.core;
 import net.spfbl.dns.Zone;
 import net.spfbl.spf.SPF;
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -63,6 +64,7 @@ import static net.spfbl.core.Regex.isValidIPv6;
 import net.spfbl.core.User.Query;
 import net.spfbl.data.Abuse;
 import net.spfbl.data.Block;
+import net.spfbl.data.ContentBayes;
 import net.spfbl.data.Dictionary;
 import net.spfbl.data.Generic;
 import net.spfbl.data.Ignore;
@@ -322,7 +324,171 @@ public final class AdministrationTCP extends Server {
             } else {
                 StringTokenizer tokenizer = new StringTokenizer(command, " ");
                 String token = tokenizer.nextToken();
-                if (token.equals("VERSION") && !tokenizer.hasMoreTokens()) {
+                if (token.equals("BAYES")) {
+                    if (!ipAddress.isLoopbackAddress() && (client == null
+                            || (!client.isAdministrator() && !client.isAdministratorEmail()))) {
+                        result = "NOT ADMIN\n";
+                    } else if (!tokenizer.hasMoreTokens()) {
+                        result = "INVALID PARAMETERS\n";
+                    } else {
+                        String operation = tokenizer.nextToken().toUpperCase(Locale.ROOT);
+                        if (operation.equals("STATS") && !tokenizer.hasMoreTokens()) {
+                            result = ContentBayes.stats();
+                        } else if (operation.equals("CLIENT") && tokenizer.hasMoreTokens()) {
+                            String clientOperation = tokenizer.nextToken().toUpperCase(Locale.ROOT);
+                            if (clientOperation.equals("SHOW") && !tokenizer.hasMoreTokens()) {
+                                result = ContentBayes.allowedClients();
+                            } else if ((clientOperation.equals("ADD") || clientOperation.equals("DROP"))
+                                    && tokenizer.countTokens() == 1) {
+                                String cidr = tokenizer.nextToken();
+                                boolean wasDecisionClient = isValidCIDR(cidr)
+                                        && ContentBayes.hasDecisionClient(cidr);
+                                if (!isValidCIDR(cidr)) {
+                                    result = "INVALID PARAMETERS\n";
+                                } else if (clientOperation.equals("ADD")) {
+                                    if (ContentBayes.hasAllowedClient(cidr)) {
+                                        result = "ALREADY EXISTS\n";
+                                    } else if (!ContentBayes.addAllowedClient(cidr)) {
+                                        result = "LIMIT_REACHED\n";
+                                    } else if (!ContentBayes.store()) {
+                                        ContentBayes.dropAllowedClient(cidr);
+                                        ContentBayes.store();
+                                        result = "ERROR: MODEL STORE FAILED\n";
+                                    } else {
+                                        result = "ADDED\n";
+                                    }
+                                } else if (!ContentBayes.hasAllowedClient(cidr)) {
+                                    result = "NOT FOUND\n";
+                                } else if (!ContentBayes.dropAllowedClient(cidr)) {
+                                    result = "NOT FOUND\n";
+                                } else if (!ContentBayes.store()) {
+                                    ContentBayes.addAllowedClient(cidr);
+                                    if (wasDecisionClient) {
+                                        ContentBayes.addDecisionClient(cidr);
+                                    }
+                                    ContentBayes.store();
+                                    result = "ERROR: MODEL STORE FAILED\n";
+                                } else {
+                                    result = "DROPPED\n";
+                                }
+                            } else {
+                                result = "INVALID PARAMETERS\n";
+                            }
+                        } else if (operation.equals("DECISION") && tokenizer.hasMoreTokens()) {
+                            String decisionOperation = tokenizer.nextToken().toUpperCase(Locale.ROOT);
+                            if (decisionOperation.equals("SHOW") && !tokenizer.hasMoreTokens()) {
+                                result = ContentBayes.decisionClients();
+                            } else if ((decisionOperation.equals("ADD") || decisionOperation.equals("DROP"))
+                                    && tokenizer.countTokens() == 1) {
+                                String cidr = tokenizer.nextToken();
+                                if (!isValidCIDR(cidr)) {
+                                    result = "INVALID PARAMETERS\n";
+                                } else if (decisionOperation.equals("ADD")) {
+                                    if (!ContentBayes.hasAllowedClient(cidr)) {
+                                        result = "NOT ENROLLED FOR SCORING\n";
+                                    } else if (ContentBayes.hasDecisionClient(cidr)) {
+                                        result = "ALREADY EXISTS\n";
+                                    } else if (!ContentBayes.addDecisionClient(cidr)) {
+                                        result = "LIMIT_REACHED\n";
+                                    } else if (!ContentBayes.store()) {
+                                        ContentBayes.dropDecisionClient(cidr);
+                                        ContentBayes.store();
+                                        result = "ERROR: MODEL STORE FAILED\n";
+                                    } else {
+                                        result = "ADDED\n";
+                                    }
+                                } else if (!ContentBayes.hasDecisionClient(cidr)) {
+                                    result = "NOT FOUND\n";
+                                } else if (!ContentBayes.dropDecisionClient(cidr)) {
+                                    result = "NOT FOUND\n";
+                                } else if (!ContentBayes.store()) {
+                                    ContentBayes.addDecisionClient(cidr);
+                                    ContentBayes.store();
+                                    result = "ERROR: MODEL STORE FAILED\n";
+                                } else {
+                                    result = "DROPPED\n";
+                                }
+                            } else {
+                                result = "INVALID PARAMETERS\n";
+                            }
+                        } else if (operation.equals("ENABLE") && !tokenizer.hasMoreTokens()) {
+                            if (!ContentBayes.enable()) {
+                                result = "INSUFFICIENT_TRAINING_DATA\n";
+                            } else if (!ContentBayes.store()) {
+                                ContentBayes.disable();
+                                result = "ERROR: MODEL STORE FAILED\n";
+                            } else {
+                                result = "ENABLED\n";
+                            }
+                        } else if (operation.equals("DISABLE") && !tokenizer.hasMoreTokens()) {
+                            boolean wasEnabled = ContentBayes.isEnabled();
+                            ContentBayes.disable();
+                            if (!ContentBayes.store()) {
+                                if (wasEnabled) {
+                                    ContentBayes.enable();
+                                }
+                                result = "ERROR: MODEL STORE FAILED\n";
+                            } else {
+                                result = "DISABLED\n";
+                            }
+                        } else if (operation.equals("LEARN") && tokenizer.countTokens() == 1) {
+                            String label = tokenizer.nextToken().toUpperCase(Locale.ROOT);
+                            if (label.equals("SPAM") || label.equals("HAM")) {
+                                File directory = new File("learn" + File.separator + label.toLowerCase(Locale.ROOT));
+                                ContentBayes.LearnSummary summary = ContentBayes.learnDirectory(
+                                        directory, label.equals("SPAM")
+                                );
+                                if (!ContentBayes.store()) {
+                                    result = "ERROR: MODEL STORE FAILED\n";
+                                } else {
+                                    result = "ADDED " + summary.added + "\n"
+                                            + "DUPLICATE " + summary.duplicate + "\n"
+                                            + "LABEL_CONFLICT " + summary.conflict + "\n"
+                                            + "TOO_SMALL " + summary.tooSmall + "\n"
+                                            + "INVALID " + summary.invalid + "\n"
+                                            + "SKIPPED_LIMIT " + summary.skipped + "\n";
+                                }
+                            } else {
+                                result = "INVALID PARAMETERS\n";
+                            }
+                        } else if (operation.equals("TEST") && tokenizer.countTokens() == 1) {
+                            String filename = tokenizer.nextToken();
+                            if (!filename.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,120}\\.eml")) {
+                                result = "INVALID PARAMETERS\n";
+                            } else {
+                                File directory = new File("learn", "test");
+                                File sample = new File(directory, filename);
+                                try {
+                                    File root = new File("learn").getCanonicalFile();
+                                    if (java.nio.file.Files.isSymbolicLink(new File("learn").toPath())) {
+                                        result = "INVALID PATH\n";
+                                    } else if (!directory.exists() && !directory.mkdirs()) {
+                                        result = "ERROR: TEST DIRECTORY UNAVAILABLE\n";
+                                    } else if (java.nio.file.Files.isSymbolicLink(directory.toPath())
+                                            || java.nio.file.Files.isSymbolicLink(sample.toPath())
+                                            || !sample.getCanonicalPath().startsWith(root.getPath() + File.separator)) {
+                                        result = "INVALID PATH\n";
+                                    } else {
+                                        ContentBayes.Prediction prediction = ContentBayes.classifyFile(sample);
+                                        if (prediction == null) {
+                                            result = "INCONCLUSIVE\n";
+                                        } else {
+                                            String label = prediction.isConfidentSpam() ? "SPAM"
+                                                    : prediction.isConfidentHam() ? "HAM" : "INCONCLUSIVE";
+                                            result = label + " PROBABILITY "
+                                                    + String.format(Locale.ROOT, "%.5f", prediction.getSpamProbability())
+                                                    + " KNOWN_FEATURES " + prediction.getKnownFeatures() + "\n";
+                                        }
+                                    }
+                                } catch (Exception ex) {
+                                    result = "ERROR: INVALID TEST MESSAGE\n";
+                                }
+                            }
+                        } else {
+                            result = "INVALID PARAMETERS\n";
+                        }
+                    }
+                } else if (token.equals("VERSION") && !tokenizer.hasMoreTokens()) {
                     if (client == null) {
                         return Core.getAplication() + "\nClient: " + ipAddress.getHostAddress() + "\n";
                     } else {

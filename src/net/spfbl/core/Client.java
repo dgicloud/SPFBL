@@ -29,6 +29,7 @@ import java.util.Objects;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.concurrent.atomic.AtomicLong;
 import static net.spfbl.core.Regex.isHostname;
 import static net.spfbl.core.Regex.isValidCIDR;
 import static net.spfbl.core.Regex.isValidEmail;
@@ -290,10 +291,10 @@ public class Client implements Serializable, Comparable<Client> {
     public void setDomain(String domain) throws ProcessException {
         if (domain == null) {
             this.domain = null;
-            CHANGED = true;
+            markChanged();
         } else if (isHostname(domain)) {
             this.domain = Domain.extractHost(domain, false);
-            CHANGED = true;
+            markChanged();
         } else {
             throw new ProcessException("INVALID DOMAIN");
         }
@@ -302,10 +303,10 @@ public class Client implements Serializable, Comparable<Client> {
     public void setEmail(String email) throws ProcessException {
         if (email == null || email.length() == 0) {
             this.email = null;
-            CHANGED = true;
+            markChanged();
         } else if (isValidEmail(email)) {
             this.email = email.toLowerCase();
-            CHANGED = true;
+            markChanged();
         } else {
             throw new ProcessException("INVALID EMAIL");
         }
@@ -345,7 +346,8 @@ public class Client implements Serializable, Comparable<Client> {
                 } else {
                     this.permission = Permission.SPFBL;
                     this.administrator = true;
-                    return CHANGED = true;
+                    markChanged();
+                    return true;
                 }
             } else if (setPermission(Permission.valueOf(permission))) {
                 this.administrator = false;
@@ -365,7 +367,8 @@ public class Client implements Serializable, Comparable<Client> {
             return false;
         } else {
             this.permission = permission;
-            return CHANGED = true;
+            markChanged();
+            return true;
         }
     }
     
@@ -384,7 +387,8 @@ public class Client implements Serializable, Comparable<Client> {
             return false;
         } else {
             this.actionBLOCK = action;
-            return CHANGED = true;
+            markChanged();
+            return true;
         }
     }
     
@@ -403,7 +407,8 @@ public class Client implements Serializable, Comparable<Client> {
             return false;
         } else {
             this.actionRED = action;
-            return CHANGED = true;
+            markChanged();
+            return true;
         }
     }
     
@@ -422,10 +427,12 @@ public class Client implements Serializable, Comparable<Client> {
             return false;
         } else if (action == Action.DEFER) {
             this.actionYELLOW = Action.DEFER;
-            return CHANGED = true;
+            markChanged();
+            return true;
         } else if (action == Action.HOLD) {
             this.actionYELLOW = Action.HOLD;
-            return CHANGED = true;
+            markChanged();
+            return true;
         } else {
             throw new ProcessException("INVALID YELLOW ACTION");
         }
@@ -446,7 +453,8 @@ public class Client implements Serializable, Comparable<Client> {
             return false;
         } else {
             this.limit = limit;
-            return CHANGED = true;
+            markChanged();
+            return true;
         }
     }
     
@@ -636,6 +644,17 @@ public class Client implements Serializable, Comparable<Client> {
      * Flag que indica se o cache foi modificado.
      */
     private static boolean CHANGED = false;
+    private static final AtomicLong CACHE_VERSION = new AtomicLong();
+    private static final Object STORE_LOCK = new Object();
+
+    private static void markChanged() {
+        CHANGED = true;
+        CACHE_VERSION.incrementAndGet();
+    }
+
+    public static long getCacheVersion() {
+        return CACHE_VERSION.get();
+    }
     
     public static Client create(
             String cidr, String domain, String permission, String email
@@ -648,7 +667,7 @@ public class Client implements Serializable, Comparable<Client> {
                 Client client = new Client(cidr, domain, email);
                 client.setPermission(permission);
                 put(ip, client);
-                CHANGED = true;
+                markChanged();
                 return client;
             } else {
                 return null;
@@ -737,7 +756,7 @@ public class Client implements Serializable, Comparable<Client> {
     private synchronized static Client dropExact(String key) {
         Client client = MAP.remove(key);
         if (client != null) {
-            CHANGED = true;
+            markChanged();
         }
         return client;
     }
@@ -1090,19 +1109,30 @@ public class Client implements Serializable, Comparable<Client> {
     }
     
     public static void store() {
-        if (CHANGED) {
+        storeNow();
+    }
+
+    /** Persiste imediatamente os cadastros de clientes e informa o resultado. */
+    public static boolean storeNow() {
+        synchronized (STORE_LOCK) {
+            if (!CHANGED) {
+                return true;
+            }
+            long time = System.currentTimeMillis();
+            long version = CACHE_VERSION.get();
             try {
-                long time = System.currentTimeMillis();
                 HashMap<String,Client> map = getCloneMap();
                 File file = new File("./data/client.map");
                 try (FileOutputStream outputStream = new FileOutputStream(file)) {
                     SerializationUtils.serialize(map, outputStream);
-                    // Atualiza flag de atualização.
-                    CHANGED = false;
                 }
+                // Uma alteração concorrente permanece pendente para o próximo store.
+                CHANGED = CACHE_VERSION.get() != version;
                 Server.logStore(time, file);
+                return true;
             } catch (Exception ex) {
                 Server.logError(ex);
+                return false;
             }
         }
     }

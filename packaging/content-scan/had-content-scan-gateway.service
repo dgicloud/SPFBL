@@ -1,12 +1,12 @@
 [Unit]
-Description=HAD SpamFox asynchronous Rspamd scan gateway
-After=network.target rspamd.service
-Wants=rspamd.service
+Description=SpamFox asynchronous native SPFBL Bayes content gateway
+After=network.target
 
 [Service]
 Type=simple
 User=had-content-scan
 Group=had-content-scan
+SupplementaryGroups=hadantispam
 ExecStart=/usr/bin/python3 /usr/local/lib/had-content-scan/scan_gateway.py --bind 127.0.0.1 --port 11335 --clients /etc/had-antispam/content-scan-clients.json --queue-size 4 --workers 2
 Restart=on-failure
 RestartSec=2s

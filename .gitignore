@@ -18,3 +18,5 @@ __pycache__/
 /packaging/audit/
 /packaging/dev/
 /tools/
+/data/content-bayes.db*
+/learn/

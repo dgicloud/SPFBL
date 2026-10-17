@@ -1338,6 +1338,8 @@ public class Licence {
                         return "essential sender";
                     case FQDN_ESSENTIAL:
                         return "essential FQDN";
+                    case CONTENT_BAYES_SPAM:
+                        return "Bayesian spam content";
                     default:
                         Server.logError("undefined filter: " + filter.name());
                 }
@@ -1440,6 +1442,7 @@ public class Licence {
                     case ENVELOPE_BLOCKED:
                     case ENVELOPE_INVALID:
                     case ENVELOPE_UNDESIRABLE:
+                    case CONTENT_BAYES_SPAM:
                         return Result.junk;
                     case DOMAIN_EMERGED:
                     case SPF_SOFTFAIL:

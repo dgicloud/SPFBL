@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Bounded, RAM-only HTTP ingress and asynchronous Rspamd scanner gateway."""
+"""Bounded, RAM-only HTTP ingress and asynchronous native SPFBL Bayes gateway."""
 
 from __future__ import print_function
 
 import http.client
 import ipaddress
 import json
-import math
 import os
 import queue
 import re
@@ -19,14 +18,12 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from socketserver import ThreadingMixIn
 
 import scan_client
+import spfbl_bayes
 import spfbl_feedback
 
 MAX_MESSAGE_BYTES = 25 * 1024 * 1024
-MAX_RSPAMD_RESPONSE_BYTES = 1024 * 1024
 CLIENT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 MESSAGE_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,128}$")
-SYMBOL_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
-PERCENT_RE = re.compile(r"^\s*(\d{1,3}(?:\.\d+)?)%\s*$")
 TICKET_STATUS_VALUES = scan_client.TICKET_STATUS_VALUES
 DEFAULT_MTA_ALLOWLIST = "/etc/had-antispam/allowed-cpanels.txt"
 
@@ -67,7 +64,9 @@ def _allowlist_profile(source_ip, allowlist_path):
     return "allowlist-" + str(address).replace(".", "-").replace(":", "-"), {
         "allowed_cidrs": [],
         "enabled": True,
-        "autolearn_enabled": True,
+        # Native SPFBL Bayes is the default engine; the core still enforces
+        # its own per-client BAYES CLIENT authorization.
+        "native_bayes_enabled": True,
         # Sending a SPAM ticket to SPFBL stays opt-in per explicit profile.
         "spfbl_feedback_enabled": False,
     }
@@ -157,80 +156,6 @@ def read_content_length(stream, length, max_bytes):
         body.extend(chunk)
         remaining -= len(chunk)
     return body
-
-
-def _safe_summary(response_body):
-    result = json.loads(response_body.decode("utf-8"))
-    if not isinstance(result, dict):
-        raise ValueError("Rspamd response is not a JSON object")
-    action = result.get("action", "unknown")
-    action = action if isinstance(action, str) else "unknown"
-    action = re.sub(r"[^A-Za-z0-9 _-]", "", action)[:32] or "unknown"
-    score = result.get("score")
-    if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(score):
-        score = None
-    required_score = result.get("required_score")
-    if (isinstance(required_score, bool) or not isinstance(required_score, (int, float))
-            or not math.isfinite(required_score)):
-        required_score = None
-    symbols = result.get("symbols", {})
-    names = []
-    bayes_spam_probability = None
-    bayes_ham_probability = None
-    if isinstance(symbols, dict):
-        names = sorted(name for name in symbols if isinstance(name, str) and SYMBOL_RE.match(name))
-        for symbol, field in (("BAYES_SPAM", "bayes_spam_probability"),
-                              ("BAYES_HAM", "bayes_ham_probability")):
-            entry = symbols.get(symbol)
-            options = entry.get("options", []) if isinstance(entry, dict) else []
-            probability = None
-            if isinstance(options, (list, tuple)):
-                for option in options:
-                    match = PERCENT_RE.fullmatch(str(option))
-                    if match:
-                        value = float(match.group(1))
-                        if 0.0 <= value <= 100.0:
-                            probability = value
-                        break
-            if field == "bayes_spam_probability":
-                bayes_spam_probability = probability
-            else:
-                bayes_ham_probability = probability
-    return {"action": action, "score": score, "required_score": required_score,
-            "symbols": names[:64], "bayes_spam_probability": bayes_spam_probability,
-            "bayes_ham_probability": bayes_ham_probability}
-
-
-def scan_with_rspamd(body, metadata=None, host="127.0.0.1", port=11333, timeout=12.0):
-    connection = http.client.HTTPConnection(host, port, timeout=timeout)
-    try:
-        connection.putrequest("POST", "/checkv2")
-        connection.putheader("Content-Type", "message/rfc822")
-        connection.putheader("Content-Length", str(len(body)))
-        metadata = metadata or {}
-        for key, header in (("queue_id", "Queue-Id"), ("from", "From"),
-                            ("ip", "IP"), ("helo", "Helo"), ("user", "User")):
-            value = metadata.get(key)
-            if value:
-                connection.putheader(header, value)
-        for recipient in metadata.get("rcpt", []):
-            connection.putheader("Rcpt", recipient)
-        if metadata.get("autolearn") is True:
-            connection.putheader("Settings-ID", "spamfox_content_autolearn")
-        connection.endheaders()
-        view = memoryview(body)
-        for offset in range(0, len(view), 64 * 1024):
-            connection.send(view[offset:offset + 64 * 1024])
-        response = connection.getresponse()
-        if response.status != 200:
-            response.read(4096)
-            raise RuntimeError("Rspamd HTTP status %d" % response.status)
-        data = response.read(MAX_RSPAMD_RESPONSE_BYTES + 1)
-        if len(data) > MAX_RSPAMD_RESPONSE_BYTES:
-            raise RuntimeError("Rspamd response exceeds limit")
-        return _safe_summary(data)
-    finally:
-        connection.close()
 
 
 def metadata_fields_present(metadata):
@@ -378,10 +303,9 @@ class ScanHandler(BaseHTTPRequestHandler):
                 "diagnostic_bsmtp_recipient_count"]
         else:
             metadata["spfbl_recipient_count"] = len(metadata.get("rcpt", []))
-        metadata["autolearn"] = bool(
+        metadata["native_bayes_enabled"] = bool(
             isinstance(registered_client, dict)
-            and registered_client.get("autolearn_enabled") is True
-            and metadata.get("autolearn_eligible")
+            and registered_client.get("native_bayes_enabled") is True
         )
         metadata["spfbl_feedback_enabled"] = bool(
             isinstance(registered_client, dict)
@@ -405,7 +329,7 @@ class ScanHandler(BaseHTTPRequestHandler):
                 if client_ticket_status in TICKET_STATUS_VALUES else None
             )
             queued_at = monotonic()
-            self.server.work_queue.put_nowait((client_id, message_id, body, len(body),
+            self.server.work_queue.put_nowait((source_ip, client_id, message_id, body, len(body),
                                                queued_at, metadata))
             self.server.upload_slots.release()
             emit_log("message_queued", client_id=client_id, message_id=message_id,
@@ -420,8 +344,8 @@ class ScanHandler(BaseHTTPRequestHandler):
                      bsmtp_envelope=metadata.get("diagnostic_bsmtp_envelope"),
                      bsmtp_recipient_count=metadata.get("diagnostic_bsmtp_recipient_count"),
                      exim_env_recipient_count=metadata.get("diagnostic_exim_env_recipient_count"),
-                     autolearn_eligibility=metadata.get("autolearn_ineligibility_reason",
-                                                        "ineligible"))
+                     feedback_eligibility=metadata.get("feedback_ineligibility_reason",
+                                                       "ineligible"))
             self._reply(202, {"queued": True})
         except queue.Full:
             self.server.upload_slots.release()
@@ -482,7 +406,7 @@ class BoundedThreadingHTTPServer(ThreadingMixIn, HTTPServer):
 
     def start_workers(self):
         for index in range(self.worker_count):
-            thread = threading.Thread(target=self._worker, name="rspamd-scan-%d" % index)
+            thread = threading.Thread(target=self._worker, name="sfox-content-scan-%d" % index)
             thread.daemon = True
             thread.start()
 
@@ -492,15 +416,26 @@ class BoundedThreadingHTTPServer(ThreadingMixIn, HTTPServer):
             if item is None:
                 self.work_queue.task_done()
                 return
-            client_id, message_id, body, size, queued_at, metadata = item
+            source_ip, client_id, message_id, body, size, queued_at, metadata = item
             started = monotonic()
             try:
                 # The internal SPFBL ticket is a control value, never a content signal.
                 clean_body = scan_client.strip_spfbl_feedback_header(
                     body, remove_native=True)
-                result = scan_with_rspamd(clean_body, metadata=metadata)
+                native_bayes_started = monotonic()
+                if metadata.get("native_bayes_enabled") is True:
+                    try:
+                        native_bayes = spfbl_bayes.scan_with_core(clean_body, source_ip)
+                    except Exception as exc:
+                        native_bayes = {"status": "internal_error"}
+                        emit_log("native_bayes_failed", client_id=client_id,
+                                 reason=exc.__class__.__name__)
+                else:
+                    native_bayes = {"status": "disabled"}
+                native_bayes_latency_ms = max(
+                    0, int((monotonic() - native_bayes_started) * 1000))
                 feedback_action, feedback_reason = spfbl_feedback.feedback_eligibility(
-                    metadata, metadata.get("spfbl_ticket"), result,
+                    metadata, metadata.get("spfbl_ticket"), native_bayes,
                     metadata.get("spfbl_feedback_enabled") is True)
                 feedback_status = feedback_reason
                 feedback_policy = feedback_reason if feedback_action == "spam" else None
@@ -513,10 +448,10 @@ class BoundedThreadingHTTPServer(ThreadingMixIn, HTTPServer):
                 emit_log("scan_complete", client_id=client_id, message_id=message_id,
                          bytes=size, queue_ms=max(0, int((started - queued_at) * 1000)),
                          scan_ms=max(0, int((monotonic() - started) * 1000)), timing_version=2,
-                         smtp_metadata_complete=metadata.get("autolearn_eligible") is True,
-                         autolearn_eligibility=metadata.get("autolearn_ineligibility_reason",
-                                                            "ineligible"),
-                         autolearn_profile_selected=metadata.get("autolearn") is True,
+                         feedback_metadata_complete=metadata.get("feedback_eligible") is True,
+                         feedback_eligibility=metadata.get("feedback_ineligibility_reason",
+                                                           "ineligible"),
+                         spfbl_feedback_enabled=metadata.get("spfbl_feedback_enabled") is True,
                          smtp_recipient_count=len(metadata.get("rcpt", [])),
                          client_ticket_status=metadata.get("client_ticket_status"),
                          spfbl_ticket_status=metadata.get("spfbl_ticket_status"),
@@ -525,10 +460,11 @@ class BoundedThreadingHTTPServer(ThreadingMixIn, HTTPServer):
                          bsmtp_envelope=metadata.get("diagnostic_bsmtp_envelope"),
                          bsmtp_recipient_count=metadata.get("diagnostic_bsmtp_recipient_count"),
                          exim_env_recipient_count=metadata.get("diagnostic_exim_env_recipient_count"),
-                         score=result["score"], required_score=result["required_score"],
-                         action=result["action"], symbols=result["symbols"],
-                         bayes_spam_probability=result.get("bayes_spam_probability"),
-                         bayes_ham_probability=result.get("bayes_ham_probability"),
+                         engine="spfbl_native_bayes",
+                         native_bayes_status=native_bayes.get("status"),
+                         native_bayes_spam_probability=native_bayes.get("spam_probability"),
+                         native_bayes_known_features=native_bayes.get("known_features"),
+                         native_bayes_latency_ms=native_bayes_latency_ms,
                          spfbl_feedback=feedback_status,
                          spfbl_feedback_policy=feedback_policy,
                          spfbl_feedback_latency_ms=feedback_latency_ms)
@@ -551,7 +487,8 @@ def run_server(bind="127.0.0.1", port=11335, clients_path="/etc/had-antispam/con
                                         max_message_bytes, queue_size, worker_count,
                                         max_handlers, allowlist_path)
     server.start_workers()
-    emit_log("gateway_started", bind=bind, port=port, max_message_bytes=max_message_bytes,
+    emit_log("gateway_started", bind=bind, port=port, engine="spfbl_native_bayes",
+             max_message_bytes=max_message_bytes,
              queue_size=queue_size, worker_count=worker_count)
     try:
         server.serve_forever(poll_interval=0.5)
