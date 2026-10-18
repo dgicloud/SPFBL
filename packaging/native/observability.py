@@ -24,10 +24,10 @@ import control
 
 
 HOST = "127.0.0.1"
-PORT = int(os.environ.get("HAD_ANTISPAM_OBSERVABILITY_PORT", "9911"))
+PORT = int(os.environ.get("SPAMFOX_OBSERVABILITY_PORT", os.environ.get("HAD_ANTISPAM_OBSERVABILITY_PORT", "9911")))
 APP = "/opt/spfbl"
-CORE_UNIT = "had-antispam-core.service"
-STORE_UNIT = "had-antispam-store.timer"
+CORE_UNIT = "spamfox-core.service"
+STORE_UNIT = "spamfox-store.timer"
 PEER_STATS_CACHE_TTL_SECONDS = 30.0
 PEER_STATS_ERROR_CACHE_TTL_SECONDS = 5.0
 _peer_stats_cache_lock = threading.Lock()
@@ -64,15 +64,15 @@ def _process_metrics(pid):
         with open(os.path.join(root, "status"), "r") as status_file:
             for line in status_file:
                 if line.startswith("VmRSS:"):
-                    metrics["had_antispam_core_resident_memory_bytes"] = int(line.split()[1]) * 1024
+                    metrics["spamfox_core_resident_memory_bytes"] = int(line.split()[1]) * 1024
                     break
-        metrics["had_antispam_core_open_fds"] = len(os.listdir(os.path.join(root, "fd")))
+        metrics["spamfox_core_open_fds"] = len(os.listdir(os.path.join(root, "fd")))
         with open(os.path.join(root, "stat"), "r") as stat_file:
             contents = stat_file.read()
         # The process name in /proc/<pid>/stat can contain spaces and parentheses.
         fields = contents[contents.rfind(")") + 2:].split()
         ticks = int(fields[11]) + int(fields[12])  # utime + stime (fields 14 and 15)
-        metrics["had_antispam_core_cpu_seconds_total"] = ticks / float(os.sysconf("SC_CLK_TCK"))
+        metrics["spamfox_core_cpu_seconds_total"] = ticks / float(os.sysconf("SC_CLK_TCK"))
     except (IOError, OSError, ValueError, IndexError, KeyError):
         return metrics
     return metrics
@@ -145,25 +145,25 @@ def render_metrics(status=None):
     query_up = status["version"] is not None
     timer_up = status["store_timer"] == "active"
     lines = [
-        "# HELP had_antispam_core_up Whether the SPFBL systemd service is active.",
-        "# TYPE had_antispam_core_up gauge",
-        "had_antispam_core_up {0}".format(int(core_up)),
-        "# HELP had_antispam_admin_query_up Whether the local SPFBL ADMIN VERSION query succeeds.",
-        "# TYPE had_antispam_admin_query_up gauge",
-        "had_antispam_admin_query_up {0}".format(int(query_up)),
-        "# HELP had_antispam_store_timer_active Whether the periodic STORE timer is active.",
-        "# TYPE had_antispam_store_timer_active gauge",
-        "had_antispam_store_timer_active {0}".format(int(timer_up)),
-        "# HELP had_antispam_peer_query_up Whether the local SPFBL ADMIN PEER SHOW query succeeds.",
-        "# TYPE had_antispam_peer_query_up gauge",
-        "had_antispam_peer_query_up {0}".format(int(status.get("peer_stats") is not None)),
-        "# HELP had_antispam_build_info Release and upstream core version labels.",
-        "# TYPE had_antispam_build_info gauge",
+        "# HELP spamfox_core_up Whether the SPFBL systemd service is active.",
+        "# TYPE spamfox_core_up gauge",
+        "spamfox_core_up {0}".format(int(core_up)),
+        "# HELP spamfox_admin_query_up Whether the local SPFBL ADMIN VERSION query succeeds.",
+        "# TYPE spamfox_admin_query_up gauge",
+        "spamfox_admin_query_up {0}".format(int(query_up)),
+        "# HELP spamfox_store_timer_active Whether the periodic STORE timer is active.",
+        "# TYPE spamfox_store_timer_active gauge",
+        "spamfox_store_timer_active {0}".format(int(timer_up)),
+        "# HELP spamfox_peer_query_up Whether the local SPFBL ADMIN PEER SHOW query succeeds.",
+        "# TYPE spamfox_peer_query_up gauge",
+        "spamfox_peer_query_up {0}".format(int(status.get("peer_stats") is not None)),
+        "# HELP spamfox_build_info Release and upstream core version labels.",
+        "# TYPE spamfox_build_info gauge",
     ]
     labels = 'version="{0}",release="{1}"'.format(
         _escape_label(status["version"] or "unavailable"), _escape_label(status["release"]),
     )
-    lines.append("had_antispam_build_info{{{0}}} 1".format(labels))
+    lines.append("spamfox_build_info{{{0}}} 1".format(labels))
     peer_stats = status.get("peer_stats")
     if peer_stats is not None:
         peer_metrics = (
@@ -176,7 +176,7 @@ def render_metrics(status=None):
             ("reputation_max_positive_count", "Peers with a positive SPFBL per-peer reputation cap."),
         )
         for suffix, help_text in peer_metrics:
-            name = "had_antispam_peer_" + suffix
+            name = "spamfox_peer_" + suffix
             lines.append("# HELP {0} {1}".format(name, help_text))
             lines.append("# TYPE {0} gauge".format(name))
             lines.append("{0} {1}".format(name, peer_stats[suffix]))
@@ -188,7 +188,7 @@ def render_metrics(status=None):
 
 def create_server(host=HOST, port=PORT):
     class Handler(BaseHTTPRequestHandler):
-        server_version = "HAD-AntiSpam-Monitor/1"
+        server_version = "SpamFox-Observability/1"
 
         def do_GET(self):
             if self.path == "/health":
@@ -223,7 +223,7 @@ def create_server(host=HOST, port=PORT):
 
 def main():
     server = create_server()
-    print("HAD AntiSpam observability listening on {0}:{1}".format(*server.server_address))
+    print("SpamFox observability listening on {0}:{1}".format(*server.server_address))
     try:
         server.serve_forever()
     except KeyboardInterrupt:

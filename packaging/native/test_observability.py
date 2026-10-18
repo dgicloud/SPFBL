@@ -131,12 +131,12 @@ class ObservabilityTests(unittest.TestCase):
         }
         with mock.patch.object(observability, "_main_pid", return_value=None):
             rendered = observability.render_metrics(status)
-        self.assertIn("had_antispam_core_up 1", rendered)
-        self.assertIn("had_antispam_admin_query_up 1", rendered)
-        self.assertIn("had_antispam_store_timer_active 0", rendered)
-        self.assertIn("had_antispam_peer_query_up 1", rendered)
-        self.assertIn("had_antispam_peer_recent_activity_count 1", rendered)
-        self.assertIn("had_antispam_peer_reputation_max_sum 0", rendered)
+        self.assertIn("spamfox_core_up 1", rendered)
+        self.assertIn("spamfox_admin_query_up 1", rendered)
+        self.assertIn("spamfox_store_timer_active 0", rendered)
+        self.assertIn("spamfox_peer_query_up 1", rendered)
+        self.assertIn("spamfox_peer_recent_activity_count 1", rendered)
+        self.assertIn("spamfox_peer_reputation_max_sum 0", rendered)
         self.assertIn('version="SPFBL-\\\"3.0\\\""', rendered)
         self.assertIn('release="r\\\\1\\n"', rendered)
 
@@ -146,7 +146,7 @@ class ObservabilityTests(unittest.TestCase):
             "release": "1.1.7-test", "healthy": True,
         }
         with mock.patch.object(observability, "collect_status", return_value=status):
-            with mock.patch.object(observability, "render_metrics", return_value="had_antispam_core_up 1\n"):
+            with mock.patch.object(observability, "render_metrics", return_value="spamfox_core_up 1\n"):
                 server = observability.create_server("127.0.0.1", 0)
                 thread = threading.Thread(target=server.serve_forever)
                 thread.daemon = True
@@ -158,7 +158,7 @@ class ObservabilityTests(unittest.TestCase):
                         self.assertEqual("no-store", response.headers["Cache-Control"])
                         self.assertEqual("ok", json.loads(response.read().decode())["status"])
                     with urlopen(base + "/metrics", timeout=2) as response:
-                        self.assertIn("had_antispam_core_up 1", response.read().decode())
+                        self.assertIn("spamfox_core_up 1", response.read().decode())
                     with self.assertRaises(HTTPError) as error:
                         urlopen(base + "/", timeout=2)
                     self.assertEqual(404, error.exception.code)

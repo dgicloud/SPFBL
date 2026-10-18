@@ -1,3 +1,0 @@
-#!/bin/sh
-set -eu
-exec /usr/bin/python3 /usr/local/lib/had-antispam/backup_restore.py backup "$@"

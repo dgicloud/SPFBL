@@ -1,17 +1,17 @@
 [Unit]
 Description=SpamFox native SPFBL core
 Wants=network-online.target
-Requires=had-antispam-firewall.service
-After=network-online.target had-antispam-firewall.service
+Requires=spamfox-firewall.service
+After=network-online.target spamfox-firewall.service
 StartLimitIntervalSec=60
 StartLimitBurst=5
 
 [Service]
 Type=simple
-User=hadantispam
-Group=hadantispam
+User=spamfox
+Group=spamfox
 WorkingDirectory=/opt/spfbl
-Environment=HOME=/var/lib/had-antispam
+Environment=HOME=/var/lib/spamfox
 UMask=0027
 ExecStart=/usr/bin/java -Xms512m -Xmx2048m -cp /opt/spfbl/current/SPFBL.jar:/opt/spfbl/current/lib/* net.spfbl.core.Core
 ExecStop=+/usr/bin/python3 /opt/spfbl/current/control.py shutdown
@@ -31,7 +31,7 @@ ProtectControlGroups=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 RestrictSUIDSGID=yes
 LockPersonality=yes
-ReadWritePaths=/var/lib/had-antispam /var/log/spfbl
+ReadWritePaths=/var/lib/spamfox /var/log/spfbl
 
 [Install]
 WantedBy=multi-user.target

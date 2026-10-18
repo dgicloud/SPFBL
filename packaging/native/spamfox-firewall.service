@@ -1,13 +1,13 @@
 [Unit]
 Description=SpamFox network boundary for query, ADMIN, and HTTP
-Before=had-antispam-core.service
+Before=spamfox-core.service
 After=network-pre.target
 Wants=network-pre.target
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/bin/python3 /opt/spfbl/current/firewall.py apply --allowlist /etc/spamfox/allowed-cpanels.txt
+ExecStart=/usr/bin/python3 /opt/spfbl/current/firewall.py apply --allowlist /etc/spamfox/allowed-cpanels.txt --allow-empty
 TimeoutStartSec=20
 
 [Install]

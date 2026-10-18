@@ -6,7 +6,7 @@ from unittest import mock
 
 
 MODULE_PATH = os.path.join(os.path.dirname(__file__), "firewall.py")
-SPEC = importlib.util.spec_from_file_location("had_firewall", MODULE_PATH)
+SPEC = importlib.util.spec_from_file_location("spamfox_firewall", MODULE_PATH)
 firewall = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(firewall)
 
@@ -16,9 +16,9 @@ class FirewallTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "allowed-cpanels.txt")
             with open(path, "w", encoding="utf-8") as stream:
-                stream.write("# comment\n177.39.18.160\n2001:db8::/48\n")
+                stream.write("# comment\n203.0.113.160\n2001:db8::/48\n")
             networks = firewall.load_networks(path)
-        self.assertEqual(["177.39.18.160/32", "2001:db8::/48"], [str(n) for n in networks])
+        self.assertEqual(["203.0.113.160/32", "2001:db8::/48"], [str(n) for n in networks])
 
     def test_rejects_empty_or_invalid_allowlist(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -28,13 +28,13 @@ class FirewallTests(unittest.TestCase):
             with self.assertRaisesRegex(firewall.FirewallError, "allowlist_is_empty"):
                 firewall.load_networks(path)
             with open(path, "w", encoding="utf-8") as stream:
-                stream.write("177.39.18.999/32\n")
+                stream.write("203.0.113.999/32\n")
             with self.assertRaisesRegex(firewall.FirewallError, "invalid_allowlist_line_1"):
                 firewall.load_networks(path)
 
     def test_rules_allow_only_configured_query_sources_and_keep_admin_and_http_private(self):
-        rendered = firewall.render_rules([firewall.ipaddress.ip_network("177.39.18.160/32")])
-        self.assertIn("ip saddr 177.39.18.160/32 tcp dport 9877 accept", rendered)
+        rendered = firewall.render_rules([firewall.ipaddress.ip_network("203.0.113.160/32")])
+        self.assertIn("ip saddr 203.0.113.160/32 tcp dport 9877 accept", rendered)
         self.assertIn("tcp dport 9877 drop", rendered)
         self.assertIn("tcp dport 9875 drop", rendered)
         self.assertIn("tcp dport 8080 drop", rendered)
@@ -44,15 +44,40 @@ class FirewallTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "allowed-cpanels.txt")
             with open(path, "w", encoding="utf-8") as stream:
-                stream.write("177.39.18.160/32\n")
+                stream.write("203.0.113.160/32\n")
             calls = []
-            with mock.patch.object(firewall, "_existing_table", return_value="managed"):
+            with mock.patch.object(firewall, "_existing_table", side_effect=["managed", None]):
                 with mock.patch.object(firewall, "_run", side_effect=lambda cmd, **kw: calls.append((cmd, kw))):
                     firewall.apply(path)
         self.assertEqual(2, len(calls))
         self.assertTrue(calls[0][0][1:3] == ["-c", "-f"])
         self.assertEqual(calls[0][1]["input_text"], calls[1][1]["input_text"])
-        self.assertTrue(calls[1][1]["input_text"].startswith("delete table inet had_antispam\n"))
+        self.assertTrue(calls[1][1]["input_text"].startswith("delete table inet spamfox\n"))
+
+    def test_update_migrates_managed_legacy_table_in_same_transaction(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "allowed-cpanels.txt")
+            with open(path, "w", encoding="utf-8") as stream:
+                stream.write("192.0.2.25/32\n")
+            calls = []
+            with mock.patch.object(firewall, "_existing_table", side_effect=[None, "legacy-managed"]):
+                with mock.patch.object(firewall, "_run", side_effect=lambda cmd, **kw: calls.append((cmd, kw))):
+                    firewall.apply(path)
+        transaction = calls[1][1]["input_text"]
+        self.assertTrue(transaction.startswith("delete table inet had_antispam\ntable inet spamfox {"))
+        self.assertIn('comment "managed by SpamFox"', transaction)
+
+    def test_remove_clears_managed_spamfox_and_legacy_tables_atomically(self):
+        calls = []
+        with mock.patch.object(firewall, "_existing_table", side_effect=["spamfox-managed", "legacy-managed"]):
+            with mock.patch.object(firewall, "_run", side_effect=lambda cmd, **kw: calls.append((cmd, kw))):
+                firewall.remove()
+        self.assertEqual(1, len(calls))
+        self.assertEqual(["-f", "-"], calls[0][0][1:])
+        self.assertEqual(
+            "delete table inet spamfox\ndelete table inet had_antispam\n",
+            calls[0][1]["input_text"],
+        )
 
 
 if __name__ == "__main__":

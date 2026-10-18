@@ -130,6 +130,7 @@ public abstract class Server extends Thread {
      */
     public static void loadCache() {
         Client.load();
+        ClientRequestMetrics.load();
         NoReply.load();
         Owner.load();
         Domain.load();
@@ -233,6 +234,7 @@ public abstract class Server extends Thread {
         
     private static void storeAll() {
         Client.store();
+        ClientRequestMetrics.store();
         User.store();
         Peer.store();
         Provider.store();

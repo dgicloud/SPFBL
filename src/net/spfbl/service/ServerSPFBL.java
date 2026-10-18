@@ -556,6 +556,8 @@ public class ServerSPFBL extends Server {
                         Long timeKey = null;
                         InetAddress ipAddress = socket.getInetAddress();
                         Client client = null;
+                        boolean metricsRequest = false;
+                        boolean metricsReputationQuery = false;
                         User user = null;
                         try {
                             client = getClient(ipAddress);
@@ -564,6 +566,7 @@ public class ServerSPFBL extends Server {
                             InputStreamReader inputStreamReader = new InputStreamReader(inputStream, "UTF-8");
                             BufferedReader bufferedReader = new BufferedReader(inputStreamReader);
                             String line = bufferedReader.readLine();
+                            metricsRequest = line != null && !line.trim().isEmpty();
                             setQuery();
                             if (line == null) {
                                 result = "EMPTY";
@@ -705,6 +708,7 @@ public class ServerSPFBL extends Server {
                                 queryBuilder.append("\\n");
                                 query = queryBuilder.toString();
                                 if (state.equals("RCPT")) {
+                                    metricsReputationQuery = true;
                                     LinkedList<User> userResult = new LinkedList<>();
                                     TreeSet<Long> timeKeySet = new TreeSet<>();
                                     result = SPF.processPostfixRCPT(
@@ -1763,6 +1767,7 @@ public class ServerSPFBL extends Server {
                                         }
                                     } else {
                                         query = line.trim();
+                                        metricsReputationQuery = token.equals("SPF") || token.equals("CHECK") || isValidIP(token);
                                         LinkedList<User> userResult = new LinkedList<>();
                                         TreeSet<Long> timeKeySet = new TreeSet<>();
                                         result = SPF.processSPF(ipAddress, client, user, query, userResult, timeKeySet);
@@ -1796,6 +1801,9 @@ public class ServerSPFBL extends Server {
                             Server.logInfo("interrupted " + getName() + " connection.");
                             result = "INTERRUPTED\n";
                         } finally {
+                            if (metricsRequest && client != null) {
+                                net.spfbl.core.ClientRequestMetrics.record(client, metricsReputationQuery);
+                            }
                             // Fecha conexão logo após resposta.
                             socket.close();
                             // Log da consulta com o respectivo resultado.

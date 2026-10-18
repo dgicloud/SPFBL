@@ -5,7 +5,7 @@ umask 077
 ROOT=$(cd -- "$(dirname -- "$0")" && pwd)
 APP=/opt/spfbl
 ETC=/etc/spamfox
-STATE=/var/lib/had-antispam
+STATE=/var/lib/spamfox
 BACKUP_ROOT=/var/backups/spamfox
 LEGACY_DIR=""
 LEGACY_WAS_ACTIVE=0
@@ -60,8 +60,8 @@ rollback_legacy() {
         fi
     fi
     if (( status != 0 )) && [[ -n "$LEGACY_DIR" && -d "$LEGACY_DIR" ]]; then
-        systemctl disable --now had-antispam-core.service had-antispam-firewall.service \
-            had-antispam-store.timer had-antispam-observability.service >/dev/null 2>&1 || true
+        systemctl disable --now spamfox-core.service spamfox-firewall.service spamfox-firewall-admin.service \
+            spamfox-store.timer spamfox-observability.service >/dev/null 2>&1 || true
         if [[ -d "$APP" ]]; then
             mv -- "$APP" "/opt/spfbl.failed.$STAMP" 2>/dev/null || true
         fi
@@ -232,7 +232,7 @@ if [[ "$MODE" == m ]]; then
     BACKUP="$BACKUP_ROOT/spfbl-legacy-$STAMP.tar.gz"
     LEGACY_CONFIG_COPY="$BACKUP_ROOT/spfbl-legacy-config-$STAMP.conf"
     ITEMS=()
-    for path in opt/spfbl etc/spfbl etc/spfbl.conf etc/had-antispam etc/spamfox var/lib/had-antispam \
+    for path in opt/spfbl etc/spfbl etc/spfbl.conf etc/had-antispam etc/spamfox var/lib/had-antispam var/lib/spamfox \
         var/log/spfbl etc/init.d/spfbl etc/systemd/system/spfbl.service etc/cron.d/spfbl etc/logrotate.d/spfbl; do
         [[ -e "/$path" || -L "/$path" ]] && ITEMS+=("$path")
     done
@@ -290,7 +290,7 @@ if command -v timedatectl >/dev/null 2>&1; then
 fi
 bash "$ROOT/install.sh"
 if [[ "${LEGACY_CONFIG_PENDING:-0}" == 1 ]]; then
-    install -o root -g hadantispam -m 0640 "$LEGACY_CONFIG_COPY" "$ETC/spfbl.conf"
+    install -o root -g spamfox -m 0640 "$LEGACY_CONFIG_COPY" "$ETC/spfbl.conf"
 fi
 
 python3 - "$HOSTNAME" "$ADMIN_EMAIL" "$ADMIN_NAME" "$TIMEZONE" "$MODE" <<'PY'
@@ -335,7 +335,7 @@ def atomic_config(text):
             stream.write(text)
             stream.flush()
             os.fsync(stream.fileno())
-        os.chown(temporary, 0, __import__("grp").getgrnam("hadantispam").gr_gid)
+        os.chown(temporary, 0, __import__("grp").getgrnam("spamfox").gr_gid)
         os.chmod(temporary, 0o640)
         os.replace(temporary, config_path)
     except Exception:
@@ -407,13 +407,13 @@ for key in sorted(keys - seen):
 new_text = "\n".join(new_lines) + "\n"
 atomic_config(new_text)
 
-result = subprocess.run(["systemctl", "restart", "had-antispam-core.service"])
+result = subprocess.run(["systemctl", "restart", "spamfox-core.service"])
 if result.returncode:
     atomic_config(original)
-    subprocess.run(["systemctl", "restart", "had-antispam-core.service"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    raise SystemExit("SpamFox: core não reiniciou após salvar a configuração; confira systemctl status had-antispam-core.")
+    subprocess.run(["systemctl", "restart", "spamfox-core.service"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    raise SystemExit("SpamFox: core não reiniciou após salvar a configuração; confira systemctl status spamfox-core.")
 ready = False
-for _ in range(30):
+for _ in range(300):
     try:
         with socket.create_connection(("127.0.0.1", 9875), timeout=2) as connection:
             connection.settimeout(3)
@@ -426,7 +426,7 @@ for _ in range(30):
         pass
     time.sleep(2)
 if not ready:
-    raise SystemExit("SpamFox: core não respondeu VERSION em até 60 segundos.")
+    raise SystemExit("SpamFox: core não respondeu VERSION em até 600 segundos.")
 
 def admin(command):
     with socket.create_connection(("127.0.0.1", 9875), timeout=3) as connection:
@@ -562,4 +562,4 @@ printf '\nSpamFox está instalado/atualizado.\n'
 printf 'Core e consulta: TCP 9877, limitado pela allowlist /etc/spamfox/allowed-cpanels.txt.\n'
 printf 'Painel: %s\n' "$(if [[ "$CONFIGURE_NGINX" == y ]]; then printf 'https://%s/pt/' "$HOSTNAME"; else printf 'vhost Nginx não configurado'; fi)"
 printf 'ADMIN 9875 e HTTP 8080 permanecem privados. Estado persistente: %s.\n' "$STATE"
-printf 'Status: had-antispam status; backup/restore: had-antispam-backup e had-antispam-restore.\n'
+printf 'Status: spamfox status; backup/restore: spamfox-backup e spamfox-restore.\n'

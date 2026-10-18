@@ -35,12 +35,12 @@ cp "$SOURCE_ROOT/integrations/common/spfbl_client.py" "$WORK/release/integration
 printf '%s\n' "$VERSION" > "$WORK/release/version"
 
 NATIVE_FILES=(
-    control.py firewall.py backup_restore.py observability.py
-    had-antispam had-antispam-backup had-antispam-restore
-    spfbl.conf allowed-cpanels.txt had-antispam-core.service
-    had-antispam-firewall.service had-antispam-observability.service
-    had-antispam-store.service had-antispam-store.timer nginx-matrix.conf
-    dnsbl-link-override.nft had-antispam-firewall-dnsbl-link.conf
+    control.py firewall.py firewall_admin.py backup_restore.py observability.py
+    spamfox spamfox-backup spamfox-restore
+    spfbl.conf allowed-cpanels.txt spamfox-core.service
+    spamfox-firewall.service spamfox-firewall-admin.service spamfox-observability.service
+    spamfox-store.service spamfox-store.timer nginx-matrix.conf
+    dnsbl-link-override.nft spamfox-firewall-dnsbl-link.conf
 )
 for name in "${NATIVE_FILES[@]}"; do
     cp "$SOURCE_ROOT/packaging/native/$name" "$WORK/native/$name"
@@ -51,9 +51,10 @@ cp "$SOURCE_ROOT/packaging/native/README.md" "$WORK/README.md"
 cp "$SOURCE_ROOT/docs/BACKUP-RESTORE.md" "$WORK/docs/"
 cp "$SOURCE_ROOT/docs/OBSERVABILITY.md" "$WORK/docs/"
 cp "$SOURCE_ROOT/docs/CONTENT-BAYES.md" "$WORK/docs/"
+cp "$SOURCE_ROOT/docs/FIREWALL.md" "$WORK/docs/"
 
 chmod 0755 "$WORK/install.sh" "$WORK/install-assisted.sh"
-for name in control.py firewall.py backup_restore.py observability.py had-antispam had-antispam-backup had-antispam-restore; do
+for name in control.py firewall.py firewall_admin.py backup_restore.py observability.py spamfox spamfox-backup spamfox-restore; do
     chmod 0755 "$WORK/native/$name"
 done
 tar -C "$TMP" -czf "$ARCHIVE" "$PACKAGE"

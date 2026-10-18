@@ -102,7 +102,7 @@ def run(root, repository, runtime=None):
     layout = Layout(
         app=root / "opt" / "spfbl",
         etc=root / "etc" / "spamfox",
-        state=root / "var" / "lib" / "had-antispam",
+        state=root / "var" / "lib" / "spamfox",
         backups=root / "backups",
     )
     current = layout.app / "current"
@@ -124,7 +124,7 @@ def run(root, repository, runtime=None):
     (layout.state / "history").mkdir()
     logs = root / "logs"
     logs.mkdir()
-    name = "had-antispam-restore-" + uuid.uuid4().hex[:10]
+    name = "spamfox-restore-" + uuid.uuid4().hex[:10]
     service = DockerCore(name)
     manager = BackupRestore(layout, service, owner_normalizer=lambda etc, state: None)
 
@@ -155,7 +155,7 @@ def run(root, repository, runtime=None):
 
         archive, digest, manifest = manager.backup()
         baseline_files = {entry["path"]: entry for entry in manifest["files"]}
-        cidr_path = "var/lib/had-antispam/data/cidr.txt"
+    cidr_path = "var/lib/spamfox/data/cidr.txt"
         if cidr_path not in baseline_files:
             raise RuntimeError("Core did not persist the synthetic baseline CIDR into cidr.txt")
         if not service.active():
@@ -211,7 +211,7 @@ def main():
     parser.add_argument("--runtime", help="diretório com o JAR/lib/data-seed; por padrão usa .audit/runtime")
     args = parser.parse_args()
     repository = Path(__file__).resolve().parents[2]
-    temporary = tempfile.TemporaryDirectory(prefix="had-antispam-core-restore-")
+    temporary = tempfile.TemporaryDirectory(prefix="spamfox-core-restore-")
     root = Path(temporary.name)
     try:
         return run(root, repository, runtime=args.runtime)

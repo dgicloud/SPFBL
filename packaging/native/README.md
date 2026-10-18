@@ -1,6 +1,8 @@
 # Pacote nativo SPFBL
 
-Este pacote prepara uma instalação nativa do core SPFBL com serviços systemd, firewall, backup/restore, observabilidade e Nginx. O core e o protocolo SPFBL permanecem upstream; os nomes SpamFox/SFOX pertencem às integrações e à apresentação.
+Este pacote instala o core SPFBL sem alterar seu código upstream, sob a distribuição SpamFox. Configuração, estado, logs, conta de serviço, comandos e units pertencem ao SpamFox; os avisos de licença e atribuição do SPFBL são mantidos.
+
+O código fica em `/opt/spfbl` e as releases são selecionadas por `/opt/spfbl/current`. O estado mutável fica em `/var/lib/spamfox`, configuração em `/etc/spamfox` e logs em `/var/log/spfbl`. O diretório de logs mantém o nome upstream SPFBL; o usuário e grupo do serviço são `spamfox`.
 
 ## Uso
 
@@ -15,9 +17,11 @@ O bootstrap instala as dependências de compilação em Debian/Ubuntu, baixa est
 
 ```bash
 sudo ./install-assisted.sh
-had-antispam status
+spamfox status
 ```
 
-A VM deve permitir TCP 9877 somente para os IPs públicos autorizados. ADMIN TCP 9875 e backend HTTP 8080 permanecem privados. O painel é publicado pelo Nginx com TLS. As mensagens para o Bayes nativo são enviadas pelo usuário no painel web.
+A VM deve permitir TCP 9877 somente para os IPs públicos autorizados. ADMIN TCP 9875 e backend HTTP 8080 permanecem privados. O painel é publicado pelo Nginx com TLS. As mensagens para o Bayes nativo são enviadas pelo usuário no painel web. Na atualização de instalações anteriores, o instalador migra o estado para `/var/lib/spamfox`; se encontrar duas bases com dados, interrompe a migração para evitar mesclá-las.
 
-Consulte [Instalação](../../docs/INSTALLATION.md), [Nginx e rotas](../../docs/NGINX-ROUTES.md) e [Backup](../../docs/BACKUP-RESTORE.md).
+O administrador também pode gerenciar a allowlist pelo navegador em `/admin/firewall/`, usando a mesma sessão administrativa do core. O auxiliar local de firewall é instalado automaticamente; o processo Java continua sem privilégios de root.
+
+Consulte [Instalação](../../docs/INSTALLATION.md), [Firewall no painel](../../docs/FIREWALL.md), [Nginx e rotas](../../docs/NGINX-ROUTES.md) e [Backup](../../docs/BACKUP-RESTORE.md).

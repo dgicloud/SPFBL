@@ -39,6 +39,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import net.spfbl.core.Core;
 import net.spfbl.core.Client;
+import net.spfbl.core.ClientRequestMetrics;
 import net.spfbl.core.ProcessException;
 import net.spfbl.core.Server;
 import net.spfbl.core.User;
@@ -666,7 +667,7 @@ final class BayesAdminHandler implements HttpHandler {
                 .append("<meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n")
                 .append("<link rel=\"icon\" href=\"/favicon.png\"><title>")
                 .append(english ? "SpamFox Bayes administration" : "Administração Bayes · SpamFox")
-                .append("</title><link rel=\"stylesheet\" href=\"/style.css?v=spamfox-ui-20261017-2\">\n")
+                .append("</title><link rel=\"stylesheet\" href=\"/style.css?v=spamfox-requests-1\">\n")
                 .append("<script src=\"/theme.js?v=spamfox-ui-20261017\" defer></script>\n")
                 .append("</head><body class=\"bayes-admin-page\"><main class=\"bayes-admin-shell\">\n")
                 .append("<header class=\"bayes-admin-topbar\"><a class=\"bayes-admin-brand\" href=\"/admin/bayes/\"><img src=\"/logo.png\" alt=\"SpamFox\"><span><strong>SpamFox</strong><small>")
@@ -674,7 +675,7 @@ final class BayesAdminHandler implements HttpHandler {
                 .append("</small></span></a><nav><a href=\"/")
                 .append(escapeAttribute(user.getEmail())).append("\">")
                 .append(english ? "Mail panel" : "Painel de e-mails")
-                .append("</a><button class=\"theme-toggle\" type=\"button\" data-theme-toggle><span data-theme-icon>☾</span><span data-theme-label>")
+                .append("</a><a href=\"/admin/firewall/\">Firewall</a><button class=\"theme-toggle\" type=\"button\" data-theme-toggle><span data-theme-icon>☾</span><span data-theme-label>")
                 .append(english ? "Dark theme" : "Tema escuro")
                 .append("</span></button></nav></header>\n")
                 .append("<section class=\"bayes-admin-heading\"><div><p class=\"bayes-eyebrow\">")
@@ -687,6 +688,7 @@ final class BayesAdminHandler implements HttpHandler {
                 .append("\"><i></i>").append(enabled ? (english ? "Classifier active" : "Classificador ativo")
                         : (english ? "Classifier disabled" : "Classificador desativado"))
                 .append("</span></section>\n")
+                .append(renderRequestMetrics(user))
                 .append("<section class=\"bayes-kpi-grid\" aria-label=\"")
                 .append(english ? "Bayes key indicators" : "Indicadores do Bayes")
                 .append("\">\n");
@@ -758,6 +760,61 @@ final class BayesAdminHandler implements HttpHandler {
                 .append(english ? "SpamFox content controls powered by the SPFBL core." : "Controle de conteúdo SpamFox executado pelo core SPFBL.")
                 .append("</span><span>").append(escapeHtml(user.getEmail())).append("</span></footer></main></body></html>");
         return html.toString();
+    }
+
+    static String renderRequestMetrics(User user) {
+        boolean english = user.getLocale() != null && "en".equalsIgnoreCase(user.getLocale().getLanguage());
+        ArrayList<Client> clients = Client.getSet();
+        ClientRequestMetrics.Snapshot metrics = ClientRequestMetrics.snapshot(clients);
+        java.text.NumberFormat numbers = java.text.NumberFormat.getIntegerInstance(user.getLocale() == null
+                ? Locale.forLanguageTag("pt-BR") : user.getLocale());
+        StringBuilder html = new StringBuilder(4096);
+        html.append("<section class=\"bayes-card bayes-request-metrics\" id=\"requests\"><div class=\"bayes-card-heading\"><div><p class=\"bayes-eyebrow\">")
+                .append(english ? "REGISTERED SERVER TRAFFIC" : "TRÁFEGO DOS SERVIDORES CADASTRADOS")
+                .append("</p><h2>").append(english ? "Requests and reputation queries" : "Requests e consultas de reputação")
+                .append("</h2></div><form method=\"get\" action=\"/admin/bayes/#requests\"><button class=\"bayes-submit\" type=\"submit\">")
+                .append(english ? "Refresh" : "Atualizar").append("</button></form></div>")
+                .append("<div class=\"bayes-kpi-grid request-kpi-grid\">");
+        appendKpi(html, english ? "Total TCP requests" : "Total de requests TCP", numbers.format(metrics.requests), "blue", "↗");
+        appendKpi(html, english ? "Total reputation queries" : "Total de consultas de reputação", numbers.format(metrics.queries), "purple", "⌕");
+        appendKpi(html, english ? "Registered servers" : "Servidores cadastrados", numbers.format(metrics.rows.size()), "green", "⌘");
+        html.append("</div><p class=\"bayes-help\">")
+                .append(english ? "Accumulated since " : "Acumulado desde ").append(metricTime(metrics.since, user))
+                .append(english ? ". Totals equal the currently registered server rows. Older logs are not imported. TCP requests include VERSION and feedback; reputation queries count SPF, CHECK, legacy commands and Postfix RCPT checks. Retries count again; these are not unique emails."
+                        : ". O total corresponde às linhas dos servidores atualmente cadastrados. Logs anteriores não são importados. Requests incluem VERSION e feedback; consultas de reputação contam SPF, CHECK, formato legado e verificações RCPT do Postfix. Tentativas repetidas contam novamente; não são e-mails únicos.")
+                .append("</p><p class=\"bayes-help\">")
+                .append(english ? "Counters refresh on page load and are saved every 60 seconds and by the core STORE operation. An abrupt failure may lose the last unsaved interval. Time zone: "
+                        : "Os contadores são atualizados ao carregar a página e salvos a cada 60 segundos e pelo STORE do core. Uma falha abrupta pode perder o último intervalo ainda não salvo. Fuso: ")
+                .append(escapeHtml((user.getTimeZone() == null ? java.util.TimeZone.getDefault() : user.getTimeZone()).getID()))
+                .append(".</p>");
+        if (!metrics.persistenceHealthy) html.append("<p class=\"bayes-client-notice is-error\" role=\"alert\">")
+                .append(english ? "Metrics collection or persistence failed. Check core logs; the existing file is preserved if loading failed."
+                        : "Falha na coleta ou persistência dos contadores. Confira os logs do core; um arquivo que falhou ao carregar é preservado.").append("</p>");
+        html.append("<div class=\"bayes-results-wrap\"><table class=\"bayes-results\"><thead><tr><th>Hostname</th><th>IP / CIDR</th><th>")
+                .append(english ? "Customer" : "Cliente").append("</th><th>Requests TCP</th><th>")
+                .append(english ? "Reputation queries" : "Consultas de reputação").append("</th><th>")
+                .append(english ? "Last request" : "Última request").append("</th></tr></thead><tbody>");
+        for (Client client : clients) {
+            ClientRequestMetrics.Counts counts = metrics.rows.get(client.getCIDR());
+            html.append("<tr><td>").append(escapeHtml(client.getDomain())).append("</td><td><code>")
+                    .append(escapeHtml(client.getCIDR())).append("</code></td><td>")
+                    .append(escapeHtml(client.getEmail() == null ? "—" : client.getEmail()))
+                    .append("</td><td class=\"request-number\">").append(numbers.format(counts.requests))
+                    .append("</td><td class=\"request-number\">").append(numbers.format(counts.queries))
+                    .append("</td><td>").append(counts.last == 0 ? "—" : metricTime(counts.last, user)).append("</td></tr>");
+        }
+        if (clients.isEmpty()) html.append("<tr><td colspan=\"6\">")
+                .append(english ? "No servers registered." : "Nenhum servidor cadastrado.").append("</td></tr>");
+        html.append("</tbody><tfoot><tr><th colspan=\"3\">Total</th><td class=\"request-number\">")
+                .append(numbers.format(metrics.requests)).append("</td><td class=\"request-number\">")
+                .append(numbers.format(metrics.queries)).append("</td><td>—</td></tr></tfoot></table></div></section>");
+        return html.toString();
+    }
+
+    private static String metricTime(long timestamp, User user) {
+        java.util.TimeZone zone = user.getTimeZone() == null ? java.util.TimeZone.getDefault() : user.getTimeZone();
+        return java.time.Instant.ofEpochMilli(timestamp).atZone(zone.toZoneId())
+                .format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss"));
     }
 
     private static void appendClientManagement(StringBuilder html, String csrfToken,
@@ -1079,7 +1136,7 @@ final class BayesAdminHandler implements HttpHandler {
         }
     }
 
-    private static String issueCsrfToken(String email) {
+    static String issueCsrfToken(String email) {
         long now = System.currentTimeMillis();
         CSRF_TOKENS.entrySet().removeIf(entry -> entry.getValue().expiresAt < now);
         if (CSRF_TOKENS.size() >= MAX_CSRF_TOKENS) return null;
@@ -1089,7 +1146,7 @@ final class BayesAdminHandler implements HttpHandler {
         return token;
     }
 
-    private static boolean consumeCsrfToken(String token, String email) {
+    static boolean consumeCsrfToken(String token, String email) {
         if (token == null) return false;
         CsrfGrant grant = CSRF_TOKENS.remove(token);
         return grant != null && grant.expiresAt >= System.currentTimeMillis()

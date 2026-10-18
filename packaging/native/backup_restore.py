@@ -27,14 +27,15 @@ from pathlib import Path, PurePosixPath
 
 FORMAT_VERSION = 1
 MAX_UNCOMPRESSED_BYTES = 20 * 1024 * 1024 * 1024
-SERVICE = "had-antispam-core.service"
+SERVICE = "spamfox-core.service"
 APP = Path("/opt/spfbl")
 ETC = Path("/etc/spamfox")
-STATE = Path("/var/lib/had-antispam")
-BACKUPS = Path("/var/backups/had-antispam")
+STATE = Path("/var/lib/spamfox")
+BACKUPS = Path("/var/backups/spamfox")
 ETC_ARCHIVE = "etc/spamfox"
 LEGACY_ETC_ARCHIVE = "etc/had-antispam"
-STATE_ARCHIVE = "var/lib/had-antispam"
+STATE_ARCHIVE = "var/lib/spamfox"
+LEGACY_STATE_ARCHIVE = "var/lib/had-antispam"
 
 
 class BackupError(RuntimeError):
@@ -75,8 +76,8 @@ class SystemdService(object):
         return result.returncode == 0 and result.stdout.strip() == "active"
 
     def pause_maintenance(self):
-        timer = "had-antispam-store.timer"
-        store = "had-antispam-store.service"
+        timer = "spamfox-store.timer"
+        store = "spamfox-store.service"
         timer_was_active = self._unit_active(timer)
         try:
             if timer_was_active:
@@ -92,7 +93,7 @@ class SystemdService(object):
     @staticmethod
     def resume_maintenance(timer_was_active):
         if timer_was_active:
-            subprocess.run(["/usr/bin/systemctl", "start", "had-antispam-store.timer"], check=True)
+            subprocess.run(["/usr/bin/systemctl", "start", "spamfox-store.timer"], check=True)
 
     def active(self):
         result = subprocess.run(
@@ -244,7 +245,7 @@ def create_archive(layout, output_dir, prefix="spfbl"):
         "format_version": FORMAT_VERSION,
         "created_utc": now.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "source_version": layout.core_version(),
-        "scope": ["/etc/spamfox", "/var/lib/had-antispam except .junique runtime locks"],
+        "scope": ["/etc/spamfox", "/var/lib/spamfox except .junique runtime locks"],
         "files": _collect_files(layout),
     }
     try:
@@ -301,8 +302,10 @@ def _validate_member_name(name):
         raise BackupError("Caminho inseguro no arquivo: {0}".format(name))
     value = path.as_posix()
     config_roots = (ETC_ARCHIVE, LEGACY_ETC_ARCHIVE)
-    if value != "MANIFEST.json" and value not in config_roots + (STATE_ARCHIVE,) \
-            and not any(value.startswith(root + "/") for root in config_roots + (STATE_ARCHIVE,)):
+    state_roots = (STATE_ARCHIVE, LEGACY_STATE_ARCHIVE)
+    allowed_roots = config_roots + state_roots
+    if value != "MANIFEST.json" and value not in allowed_roots \
+            and not any(value.startswith(root + "/") for root in allowed_roots):
         raise BackupError("Caminho fora do escopo de restore: {0}".format(name))
     return value
 
@@ -375,13 +378,15 @@ def inspect_archive(archive_path, expected_version=None):
             name in expected_files
             for name in (ETC_ARCHIVE + "/spfbl.conf", LEGACY_ETC_ARCHIVE + "/spfbl.conf")
         )
-        if not has_config or STATE_ARCHIVE + "/data/server.key" not in expected_files:
+        state_archive = next((root for root in (STATE_ARCHIVE, LEGACY_STATE_ARCHIVE)
+                              if root + "/data/server.key" in expected_files), None)
+        if not has_config or state_archive is None:
             raise BackupError("Backup não contém configuração e chave de tickets completas")
-        if not any(name.startswith("var/lib/had-antispam/data/") for name in expected_files):
+        if not any(name.startswith(state_archive + "/data/") for name in expected_files):
             raise BackupError("Diretório de dados SPFBL ausente no backup")
-        if not any(name.startswith("var/lib/had-antispam/history/") for name in seen):
+        if not any(name.startswith(state_archive + "/history/") for name in seen):
             # A history directory can be empty; tar must still contain its directory entry.
-            if "var/lib/had-antispam/history" not in seen:
+            if state_archive + "/history" not in seen:
                 raise BackupError("Diretório de histórico ausente no backup")
         version = manifest.get("source_version")
         if not isinstance(version, str) or not version:
@@ -425,10 +430,10 @@ def _normalize_ownership(etc_stage, state_stage):
     if pwd is None or grp is None:
         raise BackupError("Módulo POSIX de permissões não está disponível")
     try:
-        service_uid = pwd.getpwnam("hadantispam").pw_uid
-        service_gid = grp.getgrnam("hadantispam").gr_gid
+        service_uid = pwd.getpwnam("spamfox").pw_uid
+        service_gid = grp.getgrnam("spamfox").gr_gid
     except KeyError as exc:
-        raise BackupError("Conta/grupo hadantispam não existe; restore cancelado: {0}".format(exc))
+        raise BackupError("Conta/grupo spamfox não existe; restore cancelado: {0}".format(exc))
     os.chown(str(state_stage), service_uid, service_gid)
     os.chmod(str(state_stage), 0o750)
     for directory, subdirs, files in os.walk(str(state_stage), topdown=False):
@@ -537,13 +542,15 @@ class BackupRestore(object):
                 stopped = True
                 self.service.stop()
             safety_archive, _, _ = self._create_snapshot("pre-restore")
-            temp_root = Path(tempfile.mkdtemp(prefix="had-antispam-restore-", dir=str(self.layout.backups)))
+            temp_root = Path(tempfile.mkdtemp(prefix="spamfox-restore-", dir=str(self.layout.backups)))
             extracted = temp_root / "payload"
             _extract_verified(archive_path, extracted, manifest)
             restored_etc = extracted / "etc" / "spamfox"
             if not restored_etc.is_dir():
                 restored_etc = extracted / "etc" / "had-antispam"
-            restored_state = extracted / "var" / "lib" / "had-antispam"
+            restored_state = next((extracted.joinpath(*PurePosixPath(root).parts)
+                                   for root in (STATE_ARCHIVE, LEGACY_STATE_ARCHIVE)
+                                   if extracted.joinpath(*PurePosixPath(root).parts).is_dir()), None)
             if not restored_etc.is_dir() or not restored_state.is_dir() \
                     or not (restored_state / "data" / "server.key").is_file() \
                     or not (restored_state / "history").is_dir():
@@ -551,7 +558,7 @@ class BackupRestore(object):
 
             replacements = ((self.layout.etc, restored_etc), (self.layout.state, restored_state))
             for target, source in replacements:
-                stage = Path(tempfile.mkdtemp(prefix=".had-antispam-stage-", dir=str(target.parent)))
+                stage = Path(tempfile.mkdtemp(prefix=".spamfox-stage-", dir=str(target.parent)))
                 stages.append(stage)
                 for child in source.iterdir():
                     destination = stage / child.name
@@ -565,7 +572,7 @@ class BackupRestore(object):
 
             token = uuid.uuid4().hex
             for target, stage in ((self.layout.etc, etc_stage), (self.layout.state, state_stage)):
-                old = target.parent / ("." + target.name + ".had-antispam-old-" + token)
+                old = target.parent / ("." + target.name + ".spamfox-old-" + token)
                 os.replace(str(target), str(old))
                 swaps.append((target, old))
                 os.replace(str(stage), str(target))
@@ -607,7 +614,7 @@ class BackupRestore(object):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Backup/restore consistente do core SPFBL nativo HAD")
+    parser = argparse.ArgumentParser(description="Backup/restore consistente do core SPFBL nativo SpamFox")
     commands = parser.add_subparsers(dest="command")
     backup_parser = commands.add_parser("backup", help="grava estado e cria backup consistente")
     backup_parser.add_argument("--output-dir", default=str(BACKUPS), help="diretório privado (padrão: %(default)s)")
@@ -646,7 +653,7 @@ def main(argv=None):
             print("Restore concluído. Snapshot do estado anterior: {0}".format(result["safety_archive"]))
         return 0
     except (BackupError, OSError, subprocess.SubprocessError, tarfile.TarError) as exc:
-        print("HAD AntiSpam backup/restore: {0}".format(exc), file=sys.stderr)
+        print("SpamFox backup/restore: {0}".format(exc), file=sys.stderr)
         return 1
 
 

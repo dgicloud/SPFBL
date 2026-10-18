@@ -11,7 +11,7 @@ import os
 
 
 HOST = "127.0.0.1"
-PORT = int(os.environ.get("HAD_SPFBL_ADMIN_PORT", "9875"))
+PORT = int(os.environ.get("SPAMFOX_ADMIN_PORT", os.environ.get("HAD_SPFBL_ADMIN_PORT", "9875")))
 COMMANDS = {
     "version": ("VERSION", "SPFBL-"),
     "store": ("STORE", ("STARTING STORE", "ALREADY STORING")),
@@ -158,8 +158,8 @@ def query_peer_stats(timeout=1.0, max_response_bytes=MAX_PEER_RESPONSE_BYTES):
 
 
 def status():
-    service_state = unit_state("had-antispam-core.service")
-    timer_state = unit_state("had-antispam-store.timer")
+    service_state = unit_state("spamfox-core.service")
+    timer_state = unit_state("spamfox-store.timer")
     release = os.path.basename(os.path.realpath(os.path.join(APP, "current"))) or "unknown"
     version = None
     version_error = None
@@ -172,7 +172,7 @@ def status():
         peer_stats = query_peer_stats()
     except (OSError, RuntimeError, socket.error):
         pass
-    print("HAD AntiSpam")
+    print("SpamFox")
     print("  Core service: {0}".format(service_state))
     print("  SPFBL: {0}".format(version or "unavailable"))
     print("  Release: {0}".format(release))
@@ -193,7 +193,7 @@ def status():
 
 def get_main_pid():
     output = subprocess.check_output(
-        ["/usr/bin/systemctl", "show", "--property=MainPID", "--value", "had-antispam-core.service"],
+        ["/usr/bin/systemctl", "show", "--property=MainPID", "--value", "spamfox-core.service"],
         stderr=subprocess.DEVNULL,
     )
     return int(output.decode("ascii").strip())
@@ -216,13 +216,13 @@ def main(argv):
         print("Usage: control.py status|version|store|shutdown", file=sys.stderr)
         return 2
     if argv[1] == "shutdown" and hasattr(os, "geteuid") and os.geteuid() != 0:
-        print("HAD AntiSpam control: shutdown requires root.", file=sys.stderr)
+        print("SpamFox control: shutdown requires root.", file=sys.stderr)
         return 2
     try:
         request(argv[1])
         return 0
     except (OSError, RuntimeError) as exc:
-        print("HAD AntiSpam control failed: {0}".format(exc), file=sys.stderr)
+        print("SpamFox control failed: {0}".format(exc), file=sys.stderr)
         return 1
 
 

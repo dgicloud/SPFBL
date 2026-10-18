@@ -218,6 +218,7 @@ public final class ServerHTTP extends Server {
         Server.logInfo("binding HTTP socket on port " + port + "...");
         SERVER = HttpServer.create(new InetSocketAddress(port), 0);
         SERVER.createContext("/admin/bayes", new BayesAdminHandler(false));
+        SERVER.createContext("/admin/firewall", new FirewallAdminHandler(false));
         SERVER.createContext("/account/bayes", new BayesAdminHandler(false, true));
         SERVER.createContext("/", new AccessHandler(false));
         EXECUTOR = new ExecutorHTTP();
@@ -9664,6 +9665,7 @@ public final class ServerHTTP extends Server {
                             }
                         });
                         server.createContext("/admin/bayes", new BayesAdminHandler(true));
+                        server.createContext("/admin/firewall", new FirewallAdminHandler(true));
                         server.createContext("/account/bayes", new BayesAdminHandler(true, true));
                         server.createContext("/", new AccessHandler(true));
                         server.setExecutor(EXECUTOR);

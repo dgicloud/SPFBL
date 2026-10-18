@@ -1,12 +1,12 @@
 [Unit]
 Description=Persist SPFBL state through the local ADMIN socket
-Requires=had-antispam-core.service
-After=had-antispam-core.service
+Requires=spamfox-core.service
+After=spamfox-core.service
 
 [Service]
 Type=oneshot
-User=hadantispam
-Group=hadantispam
+User=spamfox
+Group=spamfox
 ExecStart=/usr/bin/python3 /opt/spfbl/current/control.py store
 NoNewPrivileges=yes
 PrivateTmp=yes

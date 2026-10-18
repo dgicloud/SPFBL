@@ -34,7 +34,7 @@ def process_rss_bytes(pid):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--unit", default="had-antispam-core.service")
+    parser.add_argument("--unit", default="spamfox-core.service")
     parser.add_argument("--duration", type=float, default=15.0)
     parser.add_argument("--interval", type=float, default=0.1)
     args = parser.parse_args(argv)

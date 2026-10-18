@@ -15,6 +15,8 @@ O assistente pergunta se a VM receberá uma instalação nova ou atualizará um 
 
 Antes de selecionar Nginx/TLS, aponte o registro DNS do hostname para a VM e permita TCP 80/443 no firewall da VM e do provedor. Para as consultas, permita TCP 9877 apenas dos IPs públicos dos MTAs. ADMIN TCP 9875 e backend HTTP 8080 permanecem privados.
 
+Depois da instalação, entre com a conta administradora e abra **Firewall** no painel, ou acesse `/admin/firewall/`, para adicionar, editar e remover IPs autorizados. Consulte [gestão do firewall](FIREWALL.md) para auditoria, backups e recuperação.
+
 ## Clientes
 
 - [cPanel/Exim](../integrations/cpanel/README.md)
@@ -26,9 +28,9 @@ Cadastre cada MTA no core e na allowlist da VM antes da instalação do cliente.
 
 ```bash
 /usr/local/bin/spfbl version
-had-antispam status
+spamfox status
 nginx -t
-systemctl is-active had-antispam-core
+systemctl is-active spamfox-core
 ```
 
 No Postfix, execute também `postfix check`. No cPanel, use as ferramentas do instalador para reconstruir o Exim; não edite o `/etc/exim.conf` gerado manualmente.

@@ -1,14 +1,14 @@
 [Unit]
 Description=SpamFox loopback health and metrics
-After=network.target had-antispam-core.service
+After=network.target spamfox-core.service
 
 [Service]
 Type=simple
-User=hadantispam
-Group=hadantispam
+User=spamfox
+Group=spamfox
 WorkingDirectory=/opt/spfbl
-Environment=HOME=/var/lib/had-antispam
-Environment=HAD_ANTISPAM_OBSERVABILITY_PORT=9911
+Environment=HOME=/var/lib/spamfox
+Environment=SPAMFOX_OBSERVABILITY_PORT=9911
 ExecStart=/usr/bin/python3 /opt/spfbl/current/observability.py
 Restart=on-failure
 RestartSec=3

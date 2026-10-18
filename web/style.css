@@ -1081,3 +1081,18 @@ html[data-theme="dark"] .bayes-client-form input, html[data-theme="dark"] .bayes
 	.bayes-server-table { min-width: 620px; }
 	.bayes-admin-footer { flex-direction: column; }
 }
+
+/* Native administrator firewall controls. */
+.firewall-admin-page .bayes-card { margin-bottom: 20px; }
+.firewall-form { margin: 14px 0; }
+.bayes-request-metrics { margin-bottom: 24px; }
+.request-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.bayes-results .request-number { text-align: right; font-variant-numeric: tabular-nums; }
+.bayes-request-metrics tfoot { font-weight: 700; }
+@media (max-width: 640px) { .request-kpi-grid { grid-template-columns: 1fr; } }
+.firewall-form .bayes-submit { margin-top: 14px; }
+.firewall-delete-confirm { display: flex !important; align-items: center; gap: 8px; }
+.firewall-delete-confirm input { width: auto; min-height: 0; margin: 0; }
+.firewall-delete { background: #b4233b; }
+.bayes-results details { min-width: 240px; }
+.bayes-results summary { cursor: pointer; color: var(--blue); font-weight: 700; }

@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 if [ "$#" -ne 1 ] || [ "$1" != "status" ]; then
-    echo "Usage: had-antispam status" >&2
+    echo "Usage: spamfox status" >&2
     exit 2
 fi
 exec /usr/bin/python3 /opt/spfbl/current/control.py status

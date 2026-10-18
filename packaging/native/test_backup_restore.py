@@ -11,7 +11,7 @@ from unittest import mock
 
 
 MODULE_PATH = os.path.join(os.path.dirname(__file__), "backup_restore.py")
-SPEC = importlib.util.spec_from_file_location("had_backup_restore", MODULE_PATH)
+SPEC = importlib.util.spec_from_file_location("spamfox_backup_restore", MODULE_PATH)
 backup_restore = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(backup_restore)
 
@@ -69,7 +69,7 @@ class BackupRestoreTests(unittest.TestCase):
         (current / "release").mkdir(parents=True)
         (current / "release" / "version").write_text(version, encoding="utf-8")
         etc = root / "etc" / "spamfox"
-        state = root / "var" / "lib" / "had-antispam"
+        state = root / "var" / "lib" / "spamfox"
         (etc).mkdir(parents=True)
         (state / "data").mkdir(parents=True)
         (state / "history").mkdir(parents=True)
@@ -99,11 +99,11 @@ class BackupRestoreTests(unittest.TestCase):
         self.assertTrue(Path(str(archive) + ".sha256").is_file())
         with tarfile.open(str(archive), "r:gz") as tar:
             names = set(tar.getnames())
-        self.assertIn("var/lib/had-antispam/data/server.key", names)
-        self.assertIn("var/lib/had-antispam/data/peer.map", names)
-        self.assertIn("var/lib/had-antispam/history/query.data", names)
+        self.assertIn("var/lib/spamfox/data/server.key", names)
+        self.assertIn("var/lib/spamfox/data/peer.map", names)
+        self.assertIn("var/lib/spamfox/history/query.data", names)
         self.assertIn("etc/spamfox/spfbl.conf", names)
-        self.assertNotIn("var/lib/had-antispam/.junique/global.lock", names)
+        self.assertNotIn("var/lib/spamfox/.junique/global.lock", names)
 
     def test_restore_applies_verified_snapshot_and_creates_pre_restore_copy(self):
         archive, _, _ = self._backup_without_service_cycle()
@@ -118,7 +118,7 @@ class BackupRestoreTests(unittest.TestCase):
         self.assertEqual(self.service.events, ["pause", "stop", "start", "ready", "resume"])
         self.assertTrue(self.service.is_running)
 
-    def test_restore_accepts_legacy_had_antispam_config_root(self):
+    def test_restore_accepts_legacy_config_root(self):
         with mock.patch.object(backup_restore, "ETC_ARCHIVE", backup_restore.LEGACY_ETC_ARCHIVE):
             archive, _, _ = self._backup_without_service_cycle()
         (self.layout.etc / "spfbl.conf").write_text("changed=true\n", encoding="utf-8")
@@ -128,6 +128,17 @@ class BackupRestoreTests(unittest.TestCase):
         self.assertIn("dnsbl_port=53", (self.layout.etc / "spfbl.conf").read_text(encoding="utf-8"))
         with tarfile.open(str(archive), "r:gz") as tar:
             self.assertIn("etc/had-antispam/spfbl.conf", tar.getnames())
+
+    def test_restore_accepts_legacy_had_antispam_state_root(self):
+        with mock.patch.object(backup_restore, "STATE_ARCHIVE", backup_restore.LEGACY_STATE_ARCHIVE):
+            archive, _, _ = self._backup_without_service_cycle()
+        (self.layout.state / "data" / "client.map").write_bytes(b"changed-state")
+
+        self.manager.restore(archive, confirm=True)
+
+        self.assertEqual((self.layout.state / "data" / "client.map").read_bytes(), b"synthetic-client-state\n")
+        with tarfile.open(str(archive), "r:gz") as tar:
+            self.assertIn("var/lib/had-antispam/data/server.key", tar.getnames())
 
     def test_dry_run_validates_without_stopping_or_changing_live_files(self):
         archive, _, _ = self._backup_without_service_cycle()
@@ -209,9 +220,11 @@ class BackupRestoreTests(unittest.TestCase):
             config_file.write_text("admin_port=9875", encoding="ascii")
             os.chmod(str(data_file), 0o666)
             os.chmod(str(config_file), 0o666)
-            with mock.patch.object(backup_restore.pwd, "getpwnam", return_value=SimpleNamespace(pw_uid=1001)):
-                with mock.patch.object(backup_restore.grp, "getgrnam", return_value=SimpleNamespace(gr_gid=1002)):
+            with mock.patch.object(backup_restore.pwd, "getpwnam", return_value=SimpleNamespace(pw_uid=1001)) as get_user:
+                with mock.patch.object(backup_restore.grp, "getgrnam", return_value=SimpleNamespace(gr_gid=1002)) as get_group:
                     backup_restore._normalize_ownership(etc, state)
+            get_user.assert_called_once_with("spamfox")
+            get_group.assert_called_once_with("spamfox")
             self.assertEqual(os.stat(str(data_file)).st_uid, 1001)
             self.assertEqual(os.stat(str(data_file)).st_gid, 1002)
             self.assertEqual(os.stat(str(config_file)).st_uid, 0)

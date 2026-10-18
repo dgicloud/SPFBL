@@ -1,11 +1,11 @@
-# Host-specific redirect for matrix.hadcloud.srv.br.
+# Example only: replace 192.0.2.10 with the server's public IPv4 address.
 # SPFBL emits DNSBL TXT links on :8080; send external traffic to the Nginx
 # TLS listener, which accepts HTTP via error_page 497 and canonicalizes HTTPS
 # :8080 requests as well (including browser HSTS upgrades). Local traffic on
 # 127.0.0.1:8080 bypasses PREROUTING and continues to the private backend.
-table inet had_antispam_dnsbl_link {
+table inet spamfox_dnsbl_link {
     chain prerouting {
         type nat hook prerouting priority dstnat; policy accept;
-        ip daddr 151.242.41.35 tcp dport 8080 redirect to :443
+        ip daddr 192.0.2.10 tcp dport 8080 redirect to :443
     }
 }
