@@ -375,7 +375,7 @@ public class ServerSPFBL extends Server {
     }
 
     /**
-     * Passive after-queue Bayes scoring for the HTTPS content gateway.
+     * Passive after-queue Bayes scoring over the loopback-only SPFBL protocol.
      * The client address header is trusted only on a loopback connection;
      * external MTA traffic continues to use the socket peer address.
      */

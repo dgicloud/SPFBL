@@ -61,7 +61,22 @@ if [[ ! -e "$ETC/spfbl.conf" ]]; then install -o root -g hadantispam -m 0640 "$R
 chown root:hadantispam "$ETC/spfbl.conf"
 chmod 0640 "$ETC/spfbl.conf"
 if [[ ! -e "$ETC/allowed-cpanels.txt" ]]; then install -o root -g root -m 0640 "$ROOT/native/allowed-cpanels.txt" "$ETC/allowed-cpanels.txt"; fi
-[[ -s "$ETC/allowed-cpanels.txt" ]] || fail "allowlist vazia; nenhum cPanel será exposto."
+python3 - "$ETC/allowed-cpanels.txt" <<'PY' || fail "allowlist vazia ou inválida; nenhum MTA será liberado."
+import ipaddress
+import sys
+
+networks = []
+for number, raw in enumerate(open(sys.argv[1]), 1):
+    value = raw.split("#", 1)[0].strip()
+    if not value:
+        continue
+    try:
+        networks.append(ipaddress.ip_network(value, strict=False))
+    except ValueError:
+        raise SystemExit("invalid entry on line %d" % number)
+if not networks:
+    raise SystemExit("empty allowlist")
+PY
 
 if [[ -e "$NEW_RELEASE" ]]; then fail "release $VERSION já existe; escolha outra versão. sem sobrescrever arquivos instalados."; fi
 install -d -o root -g root -m 0755 "$NEW_RELEASE"

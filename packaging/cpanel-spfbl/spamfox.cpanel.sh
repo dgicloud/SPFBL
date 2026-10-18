@@ -26,7 +26,7 @@
 # HADCloud adaptation: route all SPFBL checks to the HADCloud SPFBL server.
 # HADCloud adaptation: route the client to HADCloud and brand its operator-visible banner; preserve SPFBL protocol and license.
 HAD_SPFBL_SERVER="matrix.hadcloud.srv.br"
-HAD_ACL_RAW_BASE="https://raw.githubusercontent.com/dgicloud/SPFBL/hadcloud-cpanel-installer/client"
+HAD_ACL_RAW_BASE="https://raw.githubusercontent.com/dgicloud/SPFBL/spamfox/client"
 
 function configure_query_server_client() {
     local client_script="$1"

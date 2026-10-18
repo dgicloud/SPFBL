@@ -25,7 +25,7 @@
 
 # Route client queries through HADCloud and brand the operator-visible client banner; preserve SPFBL protocol.
 HAD_SPFBL_SERVER="matrix.hadcloud.srv.br"
-HAD_ACL_RAW_BASE="https://raw.githubusercontent.com/dgicloud/SPFBL/hadcloud-cpanel-installer/client"
+HAD_ACL_RAW_BASE="https://raw.githubusercontent.com/dgicloud/SPFBL/spamfox/client"
 
 function configure_query_server_client() {
     local client_script="$1"

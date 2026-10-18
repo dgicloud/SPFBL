@@ -23,7 +23,6 @@ EXIM_SIGNAL_FIELDS = (
     "dmarc_alignment_spf",
     "dmarc_alignment_dkim",
     "spfbl_decision",
-    "rspamd_bucket",
     "reverse_dns_valid",
     "authenticated_smtp",
     "tls_in_cipher",
@@ -34,12 +33,11 @@ _ENUMS = {
     "dkim": frozenset(("pass", "fail", "invalid", "none", "unknown")),
     "dmarc": frozenset(("accept", "reject", "quarantine", "none", "norecord", "nofrom", "temperror", "off", "unknown")),
     "spfbl": frozenset(("pass", "white", "accept", "flag", "greylist", "hold", "listed", "blocked", "fail", "softfail", "neutral", "none", "spamtrap", "nxdomain", "invalid", "lan", "inexistent", "nxsender", "banned", "unknown")),
-    "rspamd": frozenset(("below_threshold", "borderline", "above_threshold", "unknown")),
     "dmarc_alignment_spf": frozenset(("aligned", "misaligned", "none", "unknown")),
     "dmarc_alignment_dkim": frozenset(("aligned", "misaligned", "none", "unknown")),
 }
 _ENUM_NAMES = (
-    "spf", "dkim", "dmarc", "spfbl", "rspamd",
+    "spf", "dkim", "dmarc", "spfbl",
     "dmarc_alignment_spf", "dmarc_alignment_dkim",
 )
 SIGNAL_NAMES = _ENUM_NAMES + ("reverse_dns_valid", "authenticated_smtp", "smtp_tls")
@@ -101,7 +99,6 @@ def normalize_exim_signals(snapshot):
         "dmarc_alignment_spf": _alignment(snapshot.get("dmarc_alignment_spf")),
         "dmarc_alignment_dkim": _alignment(snapshot.get("dmarc_alignment_dkim")),
         "spfbl": _enum(snapshot.get("spfbl_decision"), _ENUMS["spfbl"]),
-        "rspamd": _enum(snapshot.get("rspamd_bucket"), _ENUMS["rspamd"]),
         "reverse_dns_valid": _bool(snapshot.get("reverse_dns_valid")),
         "authenticated_smtp": _bool(snapshot.get("authenticated_smtp")),
         "smtp_tls": parsed_tls,

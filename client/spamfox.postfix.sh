@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 REPOSITORY='dgicloud/SPFBL'
-REF='hadcloud-cpanel-installer'
+REF='spamfox'
 SERVER=${SFOX_SPFBL_HOST:-151.242.41.35}
 PORT=${SFOX_SPFBL_PORT:-9877}
 ROOT=$(mktemp -d /root/spamfox-postfix.XXXXXX)

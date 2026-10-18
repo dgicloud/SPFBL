@@ -235,7 +235,7 @@ class HeaderProtocolTests(unittest.TestCase):
         )
         signals = (
             "pass", "pass:pass", "accept", "yes", "no", "FLAG", "",
-            "", "true", "false",
+            "true", "false",
         )
         record = LOCAL_FIELD_SEPARATOR.join(value.encode("utf-8") for value in base + signals)
         message = parse_local_header_record(record)
@@ -257,7 +257,6 @@ class HeaderProtocolTests(unittest.TestCase):
                 "dmarc_alignment_spf": "yes",
                 "dmarc_alignment_dkim": "yes",
                 "spfbl_decision": "PASS",
-                "rspamd_bucket": "",
                 "reverse_dns_valid": "",
                 "authenticated_smtp": "false",
                 "tls_in_cipher": "true",

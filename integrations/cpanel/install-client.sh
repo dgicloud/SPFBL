@@ -12,9 +12,10 @@ usage() {
     cat <<'EOF'
 Uso: install-client.sh [--server IP] [--port 9877] [--activate-acl --test-recipient EMAIL]
 
-Instala o adapter HAD em MONITOR/fail-open e consulta diretamente o core central.
---activate-acl instala os hooks RCPT e DATA/HEADER em MONITOR; sem essa opção, o Exim não muda.
---test-recipient informa uma caixa local aceita pelo Exim para o smoke DATA sem entrega.
+Instala o adapter SPFBL e consulta diretamente o core central.
+--activate-acl instala as ACLs RCPT e DATA/HEADER do core SPFBL; sem essa opção, o Exim não muda.
+DATA/HEADER envia somente cabeçalhos e metadados ao SPFBL, nunca o corpo ou o arquivo EML.
+--test-recipient informa uma caixa local aceita pelo Exim para validar a ACL DATA sem entrega.
 EOF
 }
 fail() { echo "HAD AntiSpam cPanel: $*" >&2; exit 1; }
@@ -188,7 +189,7 @@ if (( ACTIVATE_ACL )); then
 fi
 
 trap - EXIT
-echo "Adapter HAD MONITOR consultando ${SERVER}:${PORT}; fail-open ativo."
-echo "Hooks RCPT e DATA/HEADER permanecem em MONITOR; respostas SPFBL não alteram aceite Exim."
-echo "Feedback manual: had-antispam-feedback {spam|ham} mensagem.eml | {report|dataset} - (stdin)"
+echo "Adapter SpamFox consultando o core SPFBL em ${SERVER}:${PORT}."
+echo "ACL DATA/HEADER envia somente cabeçalhos e metadados ao core; mensagens completas não são transmitidas."
+echo "Feedback nativo do SPFBL: use o ticket da mensagem conforme o painel e as ações já disponíveis no core."
 echo "ADMIN TCP 9875 não é usado pelo cPanel. Para retornar ao túnel de homologação: bash $HERE/rollback-client.sh"

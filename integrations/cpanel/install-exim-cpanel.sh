@@ -12,8 +12,8 @@ usage() {
 Uso: bash install.sh --test-recipient caixa@dominio.local [--check]
      [--server IP] [--port PORTA]
 
-Instala o adapter e os hooks RCPT/DATA de coleta em MONITOR/fail-open.
-Preserva as regras de bloqueio SPFBL existentes. --check valida requisitos e
+Instala o adapter e as ACLs RCPT/DATA do core SPFBL.
+A ACL DATA envia somente cabeçalhos e metadados, não o arquivo EML. Preserva as regras de bloqueio SPFBL. --check valida requisitos e
 conexão, sem alterar o servidor.
 Antes: cadastre o IP público no core SPFBL e na allowlist da VM.
 EOF

@@ -362,15 +362,15 @@ def parse_local_header_record(raw: bytes) -> HeaderMessage:
     if not raw or len(raw) > MAX_LOCAL_RECORD_BYTES:
         raise InputError("invalid_local_record_size")
     fields = raw.split(LOCAL_FIELD_SEPARATOR)
-    if len(fields) not in (11, 21):
+    if len(fields) not in (11, 20):
         raise InputError("invalid_header_record_shape")
     try:
         # Control fields and the normalized Exim signals are protocol data and
         # must remain strict. RFC message-header text can contain legacy 8-bit
         # octets; preserve the record and replace only invalid sequences there.
         strict_indexes = {0, 1, 2, 7}
-        if len(fields) == 21:
-            strict_indexes.update(range(11, 21))
+        if len(fields) == 20:
+            strict_indexes.update(range(11, 20))
         values = [
             field.decode("utf-8") if index in strict_indexes
             else field.decode("utf-8", errors="replace")
@@ -381,7 +381,7 @@ def parse_local_header_record(raw: bytes) -> HeaderMessage:
     if values[0] != "HEADER":
         raise InputError("invalid_header_record_type")
     technical_snapshot = None
-    if len(values) == 21:
+    if len(values) == 20:
         technical_snapshot = dict(zip(EXIM_SIGNAL_FIELDS, values[11:]))
     return HeaderMessage.from_values(*values[1:11], technical_snapshot=technical_snapshot)
 

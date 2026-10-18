@@ -467,7 +467,6 @@ class FeedbackTicketTests(unittest.TestCase):
             "dmarc_alignment_spf": "yes",
             "dmarc_alignment_dkim": "yes",
             "spfbl_decision": "FLAG",
-            "rspamd_bucket": "",
             "reverse_dns_valid": "",
             "authenticated_smtp": "false",
             "tls_in_cipher": "true",
@@ -507,7 +506,6 @@ class FeedbackTicketTests(unittest.TestCase):
             "dmarc_alignment_spf": "yes",
             "dmarc_alignment_dkim": "no",
             "spfbl_decision": "FLAG",
-            "rspamd_bucket": "",
             "reverse_dns_valid": "",
             "authenticated_smtp": "false",
             "tls_in_cipher": "true",
@@ -531,7 +529,7 @@ class FeedbackTicketTests(unittest.TestCase):
         self.assertEqual(rows[0]["label"], "ham")
         self.assertEqual(set(rows[0]["signals"]), {
             "spf", "dkim", "dmarc", "dmarc_alignment_spf",
-            "dmarc_alignment_dkim", "spfbl", "rspamd",
+            "dmarc_alignment_dkim", "spfbl",
             "reverse_dns_valid", "authenticated_smtp", "smtp_tls",
         })
         self.assertEqual(rows[0]["signals"]["spfbl"], "flag")
@@ -549,7 +547,6 @@ class FeedbackTicketTests(unittest.TestCase):
             "dmarc_alignment_spf": "",
             "dmarc_alignment_dkim": "",
             "spfbl_decision": "PASS",
-            "rspamd_bucket": "",
             "reverse_dns_valid": "",
             "authenticated_smtp": "true",
             "tls_in_cipher": "",
@@ -600,7 +597,6 @@ class FeedbackTicketTests(unittest.TestCase):
             "dmarc_alignment_spf": "",
             "dmarc_alignment_dkim": "",
             "spfbl_decision": "WHITE",
-            "rspamd_bucket": "",
             "reverse_dns_valid": "",
             "authenticated_smtp": "false",
             "tls_in_cipher": "false",

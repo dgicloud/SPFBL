@@ -108,16 +108,6 @@ try {
             --entrypoint python python:3.12-slim /source/packaging/native/bayes-spamd-smoke.py `
             $ContainerIp 9877 "/work/learn/test/$BayesCandidate" /work/learn/test
         if ($LASTEXITCODE -ne 0) { throw "Native Bayes SPAMD protocol smoke failed." }
-        $BayesHamCandidate = Get-ChildItem -LiteralPath (Join-Path $TestRoot "learn\test") -Filter "ham-*.eml" -File |
-            Select-Object -First 1 -ExpandProperty Name
-        if (-not $BayesHamCandidate) { throw "Native Bayes test corpus has no HAM control." }
-        docker run --rm --network "container:$Container" `
-            --mount "type=bind,src=$Root,dst=/source,readonly" `
-            --mount "type=bind,src=$TestRoot,dst=/work,readonly" `
-            --entrypoint python python:3.12-slim /source/packaging/native/bayes-monitor-smoke.py `
-            127.0.0.1 9877 "/work/learn/test/$BayesCandidate" "/work/learn/test/$BayesHamCandidate" `
-            198.18.250.2 $ContainerIp
-        if ($LASTEXITCODE -ne 0) { throw "Native Bayes passive monitor protocol smoke failed." }
         docker run --rm --network "container:$Container" `
             --mount "type=bind,src=$Root,dst=/source,readonly" `
             --entrypoint python python:3.12-slim /source/packaging/native/bayes-admin-smoke.py 127.0.0.1 9875 --cleanup

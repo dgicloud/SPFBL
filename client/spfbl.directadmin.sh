@@ -27,7 +27,7 @@
 # Keep the core endpoint as a hostname so a future HAD Cloud IP change does not
 # require reinstalling every DirectAdmin server.
 HAD_SPFBL_SERVER="matrix.hadcloud.srv.br"
-HAD_ACL_RAW_BASE="https://raw.githubusercontent.com/dgicloud/SPFBL/hadcloud-cpanel-installer/client"
+HAD_ACL_RAW_BASE="https://raw.githubusercontent.com/dgicloud/SPFBL/spamfox/client"
 
 function configure_query_server_client() {
     local client_script="$1"

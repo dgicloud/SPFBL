@@ -4,13 +4,20 @@ Este pacote prepara uma instalação nativa do core SPFBL com serviços systemd,
 
 ## Uso
 
-Gere o bundle para a release e extraia-o na VM central. Antes da instalação, substitua `matrix.example.com` pelo hostname público e ajuste o e-mail administrativo, as zonas DNSBL e a allowlist de MTAs em `allowed-cpanels.txt`.
+Gere o bundle para a release e extraia-o na VM central, ou use o bootstrap assistido. O assistente coleta hostname público, e-mail administrativo, SMTP, autenticação, fuso horário e allowlist. Configure o DNS e abra TCP 80/443 no firewall antes de solicitar o certificado TLS do Nginx.
 
 ```bash
-sudo ./install.sh
+curl -fsSLo install-spamfox.sh https://raw.githubusercontent.com/dgicloud/SPFBL/spamfox/run/install-spamfox.sh
+bash install-spamfox.sh
+```
+
+O bootstrap instala as dependências de compilação em Debian/Ubuntu, baixa esta branch e abre o assistente. Se já estiver com o bundle extraído:
+
+```bash
+sudo ./install-assisted.sh
 had-antispam status
 ```
 
-A VM deve permitir TCP 9877 somente para os IPs públicos autorizados. ADMIN TCP 9875 e backend HTTP 8080 permanecem privados. Publique o painel somente através do Nginx com TLS. O classificador e o gateway de conteúdo usam o Bayes nativo do core e não requerem Rspamd ou Redis.
+A VM deve permitir TCP 9877 somente para os IPs públicos autorizados. ADMIN TCP 9875 e backend HTTP 8080 permanecem privados. O painel é publicado pelo Nginx com TLS. As mensagens para o Bayes nativo são enviadas pelo usuário no painel web.
 
 Consulte [Instalação](../../docs/INSTALLATION.md), [Nginx e rotas](../../docs/NGINX-ROUTES.md) e [Backup](../../docs/BACKUP-RESTORE.md).

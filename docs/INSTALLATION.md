@@ -1,31 +1,34 @@
 # Instalação
 
-O SpamFox usa o core SPFBL nativo e adiciona clientes e ferramentas operacionais sem modificar o protocolo upstream.
+O pacote nativo instala o core SPFBL, serviços systemd, firewall, backup/restore, observabilidade e arquivos de exemplo do Nginx. O instalador assistido coleta as configurações da implantação e pode atualizar uma instalação nativa gerenciada ou migrar uma instalação SPFBL legada com backup.
 
-## Ordem recomendada
+## Instalação assistida em Debian/Ubuntu
 
-1. Instale o core SPFBL na VM central usando o pacote nativo em [`../packaging/native/`](../packaging/native/README.md).
-2. Defina o hostname público, TLS e a allowlist de IPs dos MTAs.
-3. Cadastre cada MTA no core SPFBL e na allowlist da VM.
-4. Instale o cliente adequado no MTA.
-5. Opcionalmente, instale o gateway central para pontuação das cópias after-queue pelo Bayes nativo do core.
+Execute como `root`:
+
+```bash
+curl -fsSLo install-spamfox.sh https://raw.githubusercontent.com/dgicloud/SPFBL/spamfox/run/install-spamfox.sh
+bash install-spamfox.sh
+```
+
+O assistente pergunta se a VM receberá uma instalação nova ou atualizará um SPFBL existente. Em seguida, solicita hostname público, allowlist dos MTAs, e-mail administrativo, autenticação do admin, SMTP de saída, fuso horário e configuração opcional do proxy Nginx/TLS. A migração legada cria um backup e preserva o diretório anterior após a atualização.
+
+Antes de selecionar Nginx/TLS, aponte o registro DNS do hostname para a VM e permita TCP 80/443 no firewall da VM e do provedor. Para as consultas, permita TCP 9877 apenas dos IPs públicos dos MTAs. ADMIN TCP 9875 e backend HTTP 8080 permanecem privados.
 
 ## Clientes
 
-Os comandos atuais ficam nos guias de integração:
-
 - [cPanel/Exim](../integrations/cpanel/README.md)
 - [Postfix](../integrations/postfix/README.md)
-- [Gateway de conteúdo e Bayes nativo](../integrations/content_scan/README.md)
 
-O cliente SPFBL deve alcançar a porta TCP `9877` da VM central. Permita somente os IPs públicos dos MTAs conhecidos. ADMIN `9875` e o backend HTTP `8080` não devem ser expostos diretamente. O classificador Bayes e o gateway não dependem de Rspamd ou Redis.
+Cadastre cada MTA no core e na allowlist da VM antes da instalação do cliente. Os clientes consultam somente o envelope; não enviam arquivos `.eml`. O Bayes nativo é treinado com mensagens rotuladas pelo painel do SPFBL.
 
-## Checagem mínima
+## Validação
 
 ```bash
 /usr/local/bin/spfbl version
+had-antispam status
 nginx -t
-systemctl is-active spfbl
+systemctl is-active had-antispam-core
 ```
 
-No Postfix, execute também `postfix check`. No cPanel, faça rebuild do Exim pelo fluxo do instalador; não edite o arquivo gerado `/etc/exim.conf` manualmente.
+No Postfix, execute também `postfix check`. No cPanel, use as ferramentas do instalador para reconstruir o Exim; não edite o `/etc/exim.conf` gerado manualmente.

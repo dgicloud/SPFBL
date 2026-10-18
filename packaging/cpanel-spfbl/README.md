@@ -16,10 +16,10 @@ O script mantém a licença e os avisos de copyright do upstream. O instalador a
 
 ## Instalação
 
-Esta adaptação é publicada na branch `hadcloud-cpanel-installer` do fork [dgicloud/SPFBL](https://github.com/dgicloud/SPFBL):
+Esta adaptação é publicada na branch `spamfox` do fork [dgicloud/SPFBL](https://github.com/dgicloud/SPFBL):
 
 ~~~bash
-curl -fsSL https://raw.githubusercontent.com/dgicloud/SPFBL/hadcloud-cpanel-installer/packaging/cpanel-spfbl/spamfox.cpanel.sh -o /root/spamfox.cpanel.sh
+curl -fsSL https://raw.githubusercontent.com/dgicloud/SPFBL/spamfox/packaging/cpanel-spfbl/spamfox.cpanel.sh -o /root/spamfox.cpanel.sh
 bash /root/spamfox.cpanel.sh install
 ~~~
 
@@ -45,6 +45,6 @@ O comando version deve retornar uma versão SPFBL-.... Ele verifica o endpoint T
 
 ## Atualização do upstream
 
-O script baixa o cliente oficial do branch master do upstream durante install/update e obtém as ACLs SpamFox de resultados do branch `hadcloud-cpanel-installer` do fork. Após cada download do cliente, aplica o endpoint operador somente se encontrar exatamente uma linha IP_SERVIDOR reconhecida. O atualizador de firewall também só é alterado quando encontra exatamente uma ocorrência do IP upstream esperado. Se a estrutura upstream mudar, o script interrompe essa etapa para evitar deixar um endereço ou patch ambíguo.
+O script baixa o cliente oficial do branch master do upstream durante install/update e obtém as ACLs SpamFox de resultados do branch `spamfox` do fork. Após cada download do cliente, aplica o endpoint operador somente se encontrar exatamente uma linha IP_SERVIDOR reconhecida. O atualizador de firewall também só é alterado quando encontra exatamente uma ocorrência do IP upstream esperado. Se a estrutura upstream mudar, o script interrompe essa etapa para evitar deixar um endereço ou patch ambíguo.
 
 Revise este instalador contra novas versões do upstream antes de promovê-las aos demais cPanels.

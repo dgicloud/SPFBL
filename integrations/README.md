@@ -1,29 +1,22 @@
 # Integrações SpamFox
 
-Esta pasta contém as integrações entre o core SPFBL, os MTAs e o gateway de conteúdo com Bayes nativo.
+Esta pasta contém clientes para consultar o core SPFBL nos MTAs e ferramentas reutilizáveis de protocolo.
 
 | Pasta | Função | Altera entrega? |
 |---|---|---|
-| `cpanel/` | Adapter SPFBL para Exim/cPanel e coletor Exim opcional | Policy em MONITOR; coletor é cópia accepted after-queue |
-| `postfix/` | Policy SPFBL para Postfix | Não. Responde sempre `DUNNO` em MONITOR |
-| `content_scan/` | Cliente after-queue, gateway Bayes nativo e feedback opcional de ticket SPFBL | Não. Gateway pontua cópias aceitas |
-| `common/` | Cliente de protocolo SPFBL e validação de sinais | Não |
+| `cpanel/` | Adapter SPFBL e ACLs persistentes para Exim/cPanel | Conforme a decisão SPFBL e a configuração do cliente |
+| `postfix/` | Policy service SPFBL para Postfix | O pacote atual permanece em MONITOR e responde `DUNNO` |
+| `common/` | Cliente de protocolo SPFBL e normalização de sinais técnicos | Não |
 
-## Ordem de implantação
+## Instalação
 
-1. Instale e valide o core SPFBL na VM central.
-2. Cadastre o IP público de cada MTA como `client` no SPFBL e permita-o no firewall/allowlist da VM.
-3. Instale o cliente SPFBL no cPanel ou Postfix.
-4. Opcionalmente instale o gateway de conteúdo na VM central e o coletor **apenas onde houver uma cópia after-queue comprovadamente segura**.
+1. Instale o core SPFBL na VM central pelo pacote nativo.
+2. Cadastre cada IP/CIDR público dos MTAs no core e na allowlist da VM.
+3. Instale o cliente adequado no cPanel ou Postfix.
+4. Treine o Bayes nativo pelo painel web com mensagens `.eml` rotuladas como SPAM ou HAM.
 
-O core SPFBL permanece nativo. SpamFox identifica os scripts, mensagens e operação; direitos e atribuições do SPFBL permanecem em `licence.txt` e nos arquivos upstream.
+Os instaladores de MTA consultam o envelope no SPFBL. O Exim pode enviar cabeçalhos e metadados de entrega ao próprio core para exibição no painel; nenhuma mensagem `.eml` é enviada ao MTA ou classificador de terceiros.
 
-## Endereços da implantação HAD
+O core SPFBL e seu protocolo permanecem intactos. Identidade SpamFox/SFOX, direitos autorais e atribuições seguem a licença e os avisos do projeto em `licence.txt`.
 
-- Core SPFBL: `203.0.113.10:9877`
-- Painel e gateway HTTPS: `https://matrix.exemplo.com`
-- Gateway de conteúdo: `POST /internal/sfox/scan` (restrito à allowlist)
-- Gateway Bayes: loopback na VM central; pontuação e aprendizado supervisionado fazem parte do core SPFBL.
-
-Veja os READMEs de cada pasta para comandos e limites operacionais.
-Documentacao detalhada do proxy: [Nginx e rotas](../docs/NGINX-ROUTES.md).
+Consulte [cPanel/Exim](cpanel/README.md), [Postfix](postfix/README.md) e [Nginx e rotas](../docs/NGINX-ROUTES.md).

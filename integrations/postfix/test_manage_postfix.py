@@ -131,27 +131,14 @@ class PostfixManagerTests(unittest.TestCase):
         self.assertFalse(os.path.exists(self.paths.lib_dir))
         self.assertFalse(os.path.exists(os.path.dirname(self.paths.client_conf)))
 
-    def test_policy_feedback_is_opt_in_and_requires_active_content_filter(self):
+    def test_policy_feedback_is_opt_in_without_content_filter(self):
         self.assertIn(b"SPFBL_FEEDBACK=false", config_bytes("127.0.0.1", 9877))
         install(self.paths, server="127.0.0.1", port=19877,
                 runner=self.runner, preflight=False)
-        original = self.read(self.paths.client_conf)
-        with self.assertRaises(ManagerError):
-            set_feedback_tickets(self.paths, enabled=True,
-                                 runner=self.runner, preflight=False)
-        self.assertEqual(original, self.read(self.paths.client_conf))
-
-        with open(self.paths.master, "ab") as stream:
-            stream.write(
-                b"\n# BEGIN HAD-CONTENT-SCAN TRANSPORT\n"
-                b"had-content-scan unix - n n - 2 pipe\n"
-                b"  -o pipe_destination_recipient_limit=1\n"
-                b"  argv=/usr/bin/python3 postfix_content_filter.py\n"
-                b"# END HAD-CONTENT-SCAN TRANSPORT\n"
-                b"  -o content_filter=had-content-scan:dummy\n")
         enabled = set_feedback_tickets(self.paths, enabled=True,
                                        runner=self.runner, preflight=False)
         self.assertIn("enabled", enabled)
+        self.assertNotIn(b"content_filter", self.read(self.paths.master))
         self.assertIn(b"SPFBL_FEEDBACK=true", self.read(self.paths.client_conf))
         disabled = set_feedback_tickets(self.paths, enabled=False,
                                         runner=self.runner, preflight=False)

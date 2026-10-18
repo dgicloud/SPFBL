@@ -340,13 +340,6 @@ def set_feedback_tickets(paths=None, enabled=False, runner=run_command, prefligh
         current = read_optional(paths.client_conf)
         if current is None or sha256(current) != config_info.get("installed_sha256"):
             raise ManagerError("client.conf mudou fora do gerenciador; preservei sua configuração")
-        if enabled:
-            master = read_optional(paths.master) or b""
-            if (b"# BEGIN HAD-CONTENT-SCAN TRANSPORT" not in master
-                    or b"had-content-scan:dummy" not in master):
-                raise ManagerError(
-                    "instale e valide o transporte after-queue de conteúdo antes de ativar tickets SPFBL")
-
         updated = _set_config_boolean(current, "SPFBL_FEEDBACK", enabled)
         if updated == current:
             return "SPFBL feedback " + ("enabled" if enabled else "disabled") + "; sem alteração"
