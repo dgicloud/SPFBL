@@ -58,7 +58,7 @@ if ($BayesCorpusDirectory -and $EmptyData) {
     "PUT 8.8.8.8 mail.example.net $CoreTime" | Set-Content -Encoding ascii -Path (Join-Path $TestRoot "data\fqdn.txt")
 }
 $Config = Get-Content -Raw (Join-Path $Bundle "native\spfbl.conf")
-$Config = $Config.Replace("/var/log/had-antispam/", "/work/logs/")
+$Config = $Config.Replace("/var/log/spfbl/", "/work/logs/")
 # Keep the isolated smoke test offline: don't start public HTTP or P2P services.
 $Config = [regex]::Replace($Config, "(?m)^\s*hostname=.*(?:\r?\n|$)", "")
 $Config = [regex]::Replace($Config, "(?m)^\s*http_port=.*(?:\r?\n|$)", "")

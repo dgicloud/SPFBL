@@ -68,7 +68,7 @@ class BackupRestoreTests(unittest.TestCase):
         current = app / "current"
         (current / "release").mkdir(parents=True)
         (current / "release" / "version").write_text(version, encoding="utf-8")
-        etc = root / "etc" / "had-antispam"
+        etc = root / "etc" / "spamfox"
         state = root / "var" / "lib" / "had-antispam"
         (etc).mkdir(parents=True)
         (state / "data").mkdir(parents=True)
@@ -102,7 +102,7 @@ class BackupRestoreTests(unittest.TestCase):
         self.assertIn("var/lib/had-antispam/data/server.key", names)
         self.assertIn("var/lib/had-antispam/data/peer.map", names)
         self.assertIn("var/lib/had-antispam/history/query.data", names)
-        self.assertIn("etc/had-antispam/spfbl.conf", names)
+        self.assertIn("etc/spamfox/spfbl.conf", names)
         self.assertNotIn("var/lib/had-antispam/.junique/global.lock", names)
 
     def test_restore_applies_verified_snapshot_and_creates_pre_restore_copy(self):
@@ -117,6 +117,17 @@ class BackupRestoreTests(unittest.TestCase):
         self.assertTrue(Path(result["safety_archive"]).is_file())
         self.assertEqual(self.service.events, ["pause", "stop", "start", "ready", "resume"])
         self.assertTrue(self.service.is_running)
+
+    def test_restore_accepts_legacy_had_antispam_config_root(self):
+        with mock.patch.object(backup_restore, "ETC_ARCHIVE", backup_restore.LEGACY_ETC_ARCHIVE):
+            archive, _, _ = self._backup_without_service_cycle()
+        (self.layout.etc / "spfbl.conf").write_text("changed=true\n", encoding="utf-8")
+
+        self.manager.restore(archive, confirm=True)
+
+        self.assertIn("dnsbl_port=53", (self.layout.etc / "spfbl.conf").read_text(encoding="utf-8"))
+        with tarfile.open(str(archive), "r:gz") as tar:
+            self.assertIn("etc/had-antispam/spfbl.conf", tar.getnames())
 
     def test_dry_run_validates_without_stopping_or_changing_live_files(self):
         archive, _, _ = self._backup_without_service_cycle()

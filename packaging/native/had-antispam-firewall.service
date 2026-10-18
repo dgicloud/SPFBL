@@ -1,5 +1,5 @@
 [Unit]
-Description=HAD AntiSpam network boundary for query, ADMIN, and HTTP
+Description=SpamFox network boundary for query, ADMIN, and HTTP
 Before=had-antispam-core.service
 After=network-pre.target
 Wants=network-pre.target
@@ -7,7 +7,7 @@ Wants=network-pre.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/bin/python3 /opt/spfbl/current/firewall.py apply --allowlist /etc/had-antispam/allowed-cpanels.txt
+ExecStart=/usr/bin/python3 /opt/spfbl/current/firewall.py apply --allowlist /etc/spamfox/allowed-cpanels.txt
 TimeoutStartSec=20
 
 [Install]

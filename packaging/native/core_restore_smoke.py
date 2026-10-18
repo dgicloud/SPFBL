@@ -101,7 +101,7 @@ def run(root, repository, runtime=None):
         seed.mkdir(parents=True)
     layout = Layout(
         app=root / "opt" / "spfbl",
-        etc=root / "etc" / "had-antispam",
+        etc=root / "etc" / "spamfox",
         state=root / "var" / "lib" / "had-antispam",
         backups=root / "backups",
     )

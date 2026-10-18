@@ -29,9 +29,12 @@ FORMAT_VERSION = 1
 MAX_UNCOMPRESSED_BYTES = 20 * 1024 * 1024 * 1024
 SERVICE = "had-antispam-core.service"
 APP = Path("/opt/spfbl")
-ETC = Path("/etc/had-antispam")
+ETC = Path("/etc/spamfox")
 STATE = Path("/var/lib/had-antispam")
 BACKUPS = Path("/var/backups/had-antispam")
+ETC_ARCHIVE = "etc/spamfox"
+LEGACY_ETC_ARCHIVE = "etc/had-antispam"
+STATE_ARCHIVE = "var/lib/had-antispam"
 
 
 class BackupError(RuntimeError):
@@ -170,7 +173,7 @@ def _validate_source(layout):
 
 
 def _collect_files(layout):
-    roots = ((layout.etc, "etc/had-antispam"), (layout.state, "var/lib/had-antispam"))
+    roots = ((layout.etc, ETC_ARCHIVE), (layout.state, STATE_ARCHIVE))
     files = []
     for source, archive_root in roots:
         for directory, subdirs, names in os.walk(str(source), topdown=True, followlinks=False):
@@ -241,13 +244,13 @@ def create_archive(layout, output_dir, prefix="spfbl"):
         "format_version": FORMAT_VERSION,
         "created_utc": now.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "source_version": layout.core_version(),
-        "scope": ["/etc/had-antispam", "/var/lib/had-antispam except .junique runtime locks"],
+        "scope": ["/etc/spamfox", "/var/lib/had-antispam except .junique runtime locks"],
         "files": _collect_files(layout),
     }
     try:
         with tarfile.open(str(temporary), mode="w:gz", format=tarfile.PAX_FORMAT) as tar:
-            _add_tree(tar, layout.etc, "etc/had-antispam")
-            _add_tree(tar, layout.state, "var/lib/had-antispam", skip_junique=True)
+            _add_tree(tar, layout.etc, ETC_ARCHIVE)
+            _add_tree(tar, layout.state, STATE_ARCHIVE, skip_junique=True)
             encoded = json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2).encode("utf-8")
             info = tarfile.TarInfo("MANIFEST.json")
             info.size = len(encoded)
@@ -297,8 +300,9 @@ def _validate_member_name(name):
     if path.is_absolute() or any(part in ("", ".", "..") for part in path.parts):
         raise BackupError("Caminho inseguro no arquivo: {0}".format(name))
     value = path.as_posix()
-    if value != "MANIFEST.json" and value not in ("etc/had-antispam", "var/lib/had-antispam") \
-            and not value.startswith("etc/had-antispam/") and not value.startswith("var/lib/had-antispam/"):
+    config_roots = (ETC_ARCHIVE, LEGACY_ETC_ARCHIVE)
+    if value != "MANIFEST.json" and value not in config_roots + (STATE_ARCHIVE,) \
+            and not any(value.startswith(root + "/") for root in config_roots + (STATE_ARCHIVE,)):
         raise BackupError("Caminho fora do escopo de restore: {0}".format(name))
     return value
 
@@ -367,11 +371,11 @@ def inspect_archive(archive_path, expected_version=None):
                 digest_file.update(chunk)
             if digest_file.hexdigest() != entry["sha256"].lower():
                 raise BackupError("Hash interno não confere: {0}".format(name))
-        required = {
-            "etc/had-antispam/spfbl.conf",
-            "var/lib/had-antispam/data/server.key",
-        }
-        if not required.issubset(expected_files):
+        has_config = any(
+            name in expected_files
+            for name in (ETC_ARCHIVE + "/spfbl.conf", LEGACY_ETC_ARCHIVE + "/spfbl.conf")
+        )
+        if not has_config or STATE_ARCHIVE + "/data/server.key" not in expected_files:
             raise BackupError("Backup não contém configuração e chave de tickets completas")
         if not any(name.startswith("var/lib/had-antispam/data/") for name in expected_files):
             raise BackupError("Diretório de dados SPFBL ausente no backup")
@@ -536,7 +540,9 @@ class BackupRestore(object):
             temp_root = Path(tempfile.mkdtemp(prefix="had-antispam-restore-", dir=str(self.layout.backups)))
             extracted = temp_root / "payload"
             _extract_verified(archive_path, extracted, manifest)
-            restored_etc = extracted / "etc" / "had-antispam"
+            restored_etc = extracted / "etc" / "spamfox"
+            if not restored_etc.is_dir():
+                restored_etc = extracted / "etc" / "had-antispam"
             restored_state = extracted / "var" / "lib" / "had-antispam"
             if not restored_etc.is_dir() or not restored_state.is_dir() \
                     or not (restored_state / "data" / "server.key").is_file() \

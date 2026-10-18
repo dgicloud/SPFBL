@@ -6,9 +6,10 @@ VERSION=$(cat "$ROOT/release/version")
 APP=/opt/spfbl
 RELEASES="$APP/releases"
 NEW_RELEASE="$RELEASES/$VERSION"
-ETC=/etc/had-antispam
+ETC=/etc/spamfox
+LEGACY_ETC=/etc/had-antispam
 STATE=/var/lib/had-antispam
-LOGS=/var/log/had-antispam
+LOGS=/var/log/spfbl
 LIBEXEC=/usr/local/lib/had-antispam
 SBIN=/usr/local/sbin
 OLD_RELEASE=""
@@ -35,6 +36,20 @@ chown root:hadantispam "$ETC"
 chmod 0750 "$ETC"
 install -d -o hadantispam -g hadantispam -m 0750 "$STATE" "$STATE/data" "$STATE/history" "$LOGS"
 install -d -o root -g root -m 0755 "$LIBEXEC" "$SBIN"
+
+# Migrate the core configuration without replacing values already managed at
+# the SpamFox path. This also repairs the /opt/spfbl/spfbl.conf link on upgrade.
+if [[ -d "$LEGACY_ETC" ]]; then
+    if [[ ! -e "$ETC/spfbl.conf" && -f "$LEGACY_ETC/spfbl.conf" ]]; then
+        install -o root -g hadantispam -m 0640 "$LEGACY_ETC/spfbl.conf" "$ETC/spfbl.conf"
+    fi
+    if [[ ! -e "$ETC/allowed-cpanels.txt" && -f "$LEGACY_ETC/allowed-cpanels.txt" ]]; then
+        install -o root -g root -m 0640 "$LEGACY_ETC/allowed-cpanels.txt" "$ETC/allowed-cpanels.txt"
+    fi
+    if [[ ! -e "$ETC/dnsbl-link.nft" && -f "$LEGACY_ETC/dnsbl-link.nft" ]]; then
+        install -o root -g root -m 0640 "$LEGACY_ETC/dnsbl-link.nft" "$ETC/dnsbl-link.nft"
+    fi
+fi
 
 if [[ ! -e "$STATE/data" || -z "$(find "$STATE/data" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
     cp -a "$ROOT/release/data-seed/." "$STATE/data/"
@@ -135,7 +150,7 @@ for attempt in $(seq 1 15); do
 done
 [[ "$OBSERVABILITY_READY" -eq 1 ]] || fail "serviço de observabilidade não respondeu /health e /metrics em até 15 segundos."
 trap - EXIT
-echo "HAD AntiSpam $VERSION ativo. Consulta TCP 9877 protegida por /etc/had-antispam/allowed-cpanels.txt; firewall bloqueia ADMIN 9875 e HTTP 8080 externamente."
+echo "SpamFox $VERSION ativo. Consulta TCP 9877 protegida por /etc/spamfox/allowed-cpanels.txt; firewall bloqueia ADMIN 9875 e HTTP 8080 externamente."
 echo "Para adicionar cPanels, inclua cada IP/CIDR de saída na allowlist e execute: systemctl restart had-antispam-firewall.service"
 echo "Backup: had-antispam-backup. Restore versionado: had-antispam-restore /var/backups/had-antispam/ARQUIVO.tar.gz --dry-run; aplique com --yes."
 echo "Status: had-antispam status."

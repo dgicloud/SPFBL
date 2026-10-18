@@ -1,5 +1,5 @@
 [Unit]
-Description=HAD AntiSpam native SPFBL core
+Description=SpamFox native SPFBL core
 Wants=network-online.target
 Requires=had-antispam-firewall.service
 After=network-online.target had-antispam-firewall.service
@@ -31,7 +31,7 @@ ProtectControlGroups=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 RestrictSUIDSGID=yes
 LockPersonality=yes
-ReadWritePaths=/var/lib/had-antispam /var/log/had-antispam
+ReadWritePaths=/var/lib/had-antispam /var/log/spfbl
 
 [Install]
 WantedBy=multi-user.target
