@@ -27,6 +27,50 @@
 # HADCloud adaptation: route the client to HADCloud and brand its operator-visible banner; preserve SPFBL protocol and license.
 HAD_SPFBL_SERVER="matrix.hadcloud.srv.br"
 HAD_ACL_RAW_BASE="https://raw.githubusercontent.com/dgicloud/SPFBL/spamfox/client"
+HAD_INTEGRATION_RAW_BASE="https://raw.githubusercontent.com/dgicloud/SPFBL/spamfox/integrations/cpanel"
+
+function configure_spamd_address() {
+    local config_file="${1:-/etc/exim.conf.local}"
+    local setting_count
+    local tmp_file
+    local setting="spamd_address = $HAD_SPFBL_SERVER 9877 retry=30s tmo=3m"
+
+    if [ ! -f "$config_file" ]; then
+        printf '@CONFIG@\n%s\n' "$setting" > "$config_file" || return 1
+    else
+        setting_count=$(grep -Ec '^[[:space:]]*spamd_address[[:space:]]*=' "$config_file" || true)
+        if [ "$setting_count" -gt 1 ]; then
+            echo "Expected at most one spamd_address in $config_file; refusing an ambiguous update." >&2
+            return 1
+        elif [ "$setting_count" -eq 1 ]; then
+            sed -i -E "s|^[[:space:]]*spamd_address[[:space:]]*=.*$|$setting|" "$config_file" || return 1
+        elif grep -q '^@CONFIG@$' "$config_file"; then
+            sed -i "/^@CONFIG@$/a $setting" "$config_file" || return 1
+        else
+            tmp_file=$(mktemp "${config_file}.spamfox.XXXXXX") || return 1
+            { printf '@CONFIG@\n%s\n' "$setting"; cat "$config_file"; } > "$tmp_file" || { rm -f "$tmp_file"; return 1; }
+            chmod --reference="$config_file" "$tmp_file" && chown --reference="$config_file" "$tmp_file" && \
+                mv -f "$tmp_file" "$config_file" || { rm -f "$tmp_file"; return 1; }
+        fi
+    fi
+
+    [ "$(grep -Ec '^[[:space:]]*spamd_address[[:space:]]*=' "$config_file" || true)" -eq 1 ] && \
+        grep -Fqx "$setting" "$config_file"
+}
+
+function retire_legacy_content_pipe() {
+    local helper result
+    helper=$(mktemp /root/spamfox-retire-pipe.XXXXXX) || return 1
+    if ! wget -q "$HAD_INTEGRATION_RAW_BASE/retire_legacy_content_pipe.py" -O "$helper"; then
+        rm -f "$helper"
+        echo "Could not download the legacy content-pipe cleanup helper." >&2
+        return 1
+    fi
+    python3 "$helper" "$@"
+    result=$?
+    rm -f "$helper"
+    return "$result"
+}
 
 function configure_query_server_client() {
     local client_script="$1"
@@ -221,11 +265,6 @@ function install() {
             else
                 sed '/@CONFIG@/a timeout_frozen_after = 7d' /etc/exim.conf.local > spfbltemp && mv -f spfbltemp /etc/exim.conf.local
             fi
-            if grep -q "spamd_address" /etc/exim.conf.local; then
-                sed -i "s|spamd_address = .*|spamd_address = $HAD_SPFBL_SERVER 9877 retry=30s tmo=3m|" /etc/exim.conf.local
-            else
-                sed "/@CONFIG@/a spamd_address = $HAD_SPFBL_SERVER 9877 retry=30s tmo=3m" /etc/exim.conf.local > spfbltemp && mv -f spfbltemp /etc/exim.conf.local
-            fi
             if grep -q "smtp_accept_max" /etc/exim.conf.local; then
                 sed -i 's/smtp_accept_max = .*/smtp_accept_max = 250/' /etc/exim.conf.local
             else
@@ -233,9 +272,11 @@ function install() {
             fi
         else
 	    echo "timeout_frozen_after = 7d" > /etc/exim.conf.local
-            echo "spamd_address = $HAD_SPFBL_SERVER 9877 retry=30s tmo=3m" >> /etc/exim.conf.local
             echo "smtp_accept_max = 250" >> /etc/exim.conf.local
 	fi
+
+        configure_spamd_address /etc/exim.conf.local || exit 1
+        retire_legacy_content_pipe || exit 1
 
         # Restart cPanel service.
         /usr/local/cpanel/scripts/buildeximconf
@@ -265,9 +306,8 @@ function update() {
         # Replace SPFBL client script.
         wget https://raw.githubusercontent.com/leonamp/SPFBL/master/client/spfbl.sh -O /usr/local/bin/spfbl
         configure_query_server_client /usr/local/bin/spfbl || exit 1
-        if [ -f /etc/exim.conf.local ] && grep -q "spamd_address" /etc/exim.conf.local; then
-            sed -i "s|spamd_address = .*|spamd_address = $HAD_SPFBL_SERVER 9877 retry=30s tmo=3m|" /etc/exim.conf.local
-        fi
+        configure_spamd_address /etc/exim.conf.local || exit 1
+        retire_legacy_content_pipe || exit 1
 
         # Replace SPFBL configuration files
         wget "$HAD_ACL_RAW_BASE/spfbl_end_recipient" -O /usr/local/cpanel/etc/exim/acls/ACL_RECIPIENT_BLOCK/spfbl_end_recipient
@@ -335,6 +375,7 @@ function uninstall() {
     if grep -q "smtp_accept_max" /etc/exim.conf.local; then
         sed -i '/smtp_accept_max/d' /etc/exim.conf.local
     fi
+    retire_legacy_content_pipe || exit 1
 
     /usr/local/cpanel/scripts/buildeximconf
     /usr/local/cpanel/scripts/restartsrv_exim

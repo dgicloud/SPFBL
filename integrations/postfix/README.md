@@ -10,7 +10,7 @@ bash spamfox.postfix.sh --check
 bash spamfox.postfix.sh
 ```
 
-O instalador cria snapshot, valida `postfix check`, executa o smoke de protocolo e recarrega o serviço somente após validação. O cliente de envelope não envia corpo ou arquivo `.eml`. O treinamento do Bayes nativo é feito pelo upload rotulado no painel web do SPFBL.
+O instalador cria snapshot, valida `postfix check`, executa o smoke de protocolo e recarrega o serviço somente após validação. O cliente de envelope não envia corpo ou arquivo `.eml`. O atualizador também remove o transporte legado de envio de mensagens completas quando `content_filter` está vazio e a fila do Postfix está vazia; se houver mensagens pendentes ou filtro ativo, ele para e preserva a configuração. A limpeza não altera milters locais. O treinamento do Bayes nativo é feito pelo upload rotulado no painel web do SPFBL.
 
 ```bash
 postfix check

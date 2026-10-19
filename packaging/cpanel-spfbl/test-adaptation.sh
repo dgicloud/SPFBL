@@ -41,11 +41,13 @@ fi
 grep -Fq '54.233.253.229' "$ambiguous_firewall"
 
 test "$(grep -F -c 'configure_query_server_client /usr/local/bin/spfbl || exit 1' "$installer")" -eq 2
-test "$(grep -F -c 'spamd_address = $HAD_SPFBL_SERVER 9877 retry=30s tmo=3m' "$installer")" -eq 4
+test "$(grep -F -c 'configure_spamd_address /etc/exim.conf.local || exit 1' "$installer")" -eq 2
+test "$(grep -F -c 'spamd_address = $HAD_SPFBL_SERVER 9877 retry=30s tmo=3m' "$installer")" -eq 1
 
 client_installer="$script_dir/../../client/spamfox.cpanel.sh"
 test "$(grep -F -c 'configure_query_server_client /usr/local/bin/spfbl || exit 1' "$client_installer")" -eq 2
-test "$(grep -F -c 'spamd_address = $HAD_SPFBL_SERVER 9877 retry=30s tmo=3m' "$client_installer")" -eq 4
+test "$(grep -F -c 'configure_spamd_address /etc/exim.conf.local || exit 1' "$client_installer")" -eq 2
+test "$(grep -F -c 'spamd_address = $HAD_SPFBL_SERVER 9877 retry=30s tmo=3m' "$client_installer")" -eq 1
 
 awk '
     /^HAD_SPFBL_SERVER=/ { capture = 1 }
@@ -60,4 +62,34 @@ configure_query_server_client "$client_fixture"
 grep -Fqx 'IP_SERVIDOR="matrix.hadcloud.srv.br"' "$client_fixture"
 grep -Fq 'echo "SpamFox (SFOX) v$version - Powered by SPFBL.net"' "$client_fixture"
 
-echo "PASS: endpoint patching, fail-closed checks, and installer/update integration"
+config="$tmp_dir/exim.conf.local"
+rm -f "$config"
+configure_spamd_address "$config"
+test "$(head -n 1 "$config")" = '@CONFIG@'
+test "$(sed -n '2p' "$config")" = 'spamd_address = matrix.hadcloud.srv.br 9877 retry=30s tmo=3m'
+test "$(grep -Ec '^[[:space:]]*spamd_address[[:space:]]*=' "$config")" -eq 1
+
+printf '%s\n' '@CONFIG@' 'spamd_address = 127.0.0.1 783' > "$config"
+configure_spamd_address "$config"
+grep -Fqx 'spamd_address = matrix.hadcloud.srv.br 9877 retry=30s tmo=3m' "$config"
+test "$(grep -Ec '^[[:space:]]*spamd_address[[:space:]]*=' "$config")" -eq 1
+
+printf '%s\n' '@CONFIG@' 'smtp_accept_max = 50' > "$config"
+configure_spamd_address "$config"
+grep -Fqx 'spamd_address = matrix.hadcloud.srv.br 9877 retry=30s tmo=3m' "$config"
+test "$(grep -Ec '^[[:space:]]*spamd_address[[:space:]]*=' "$config")" -eq 1
+
+printf '%s\n' '@PREROUTERS@' '@ROUTERSTART@' > "$config"
+configure_spamd_address "$config"
+test "$(head -n 1 "$config")" = '@CONFIG@'
+test "$(sed -n '2p' "$config")" = 'spamd_address = matrix.hadcloud.srv.br 9877 retry=30s tmo=3m'
+test "$(grep -Ec '^[[:space:]]*spamd_address[[:space:]]*=' "$config")" -eq 1
+
+printf '%s\n' 'spamd_address = 127.0.0.1 783' 'spamd_address = 127.0.0.1 784' > "$config"
+if configure_spamd_address "$config"; then
+    echo "Expected duplicate spamd_address to fail closed" >&2
+    exit 1
+fi
+test "$(grep -Ec '^[[:space:]]*spamd_address[[:space:]]*=' "$config")" -eq 2
+
+echo "PASS: endpoint patching, Bayes endpoint install/update, and fail-closed checks"

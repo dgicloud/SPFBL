@@ -30,11 +30,14 @@ install -d -m 0755 "$ROOT/integrations/postfix" "$ROOT/integrations/common"
 fetch integrations/postfix/install.sh "$ROOT/integrations/postfix/install.sh"
 fetch integrations/postfix/manage_postfix.py "$ROOT/integrations/postfix/manage_postfix.py"
 fetch integrations/postfix/postfix_policy.py "$ROOT/integrations/postfix/postfix_policy.py"
+fetch integrations/postfix/retire_legacy_content_scan.py "$ROOT/integrations/postfix/retire_legacy_content_scan.py"
 fetch integrations/common/spfbl_client.py "$ROOT/integrations/common/spfbl_client.py"
 chmod 0755 "$ROOT/integrations/postfix/install.sh"
 
 if [[ ${1:-} == '--check' ]]; then
     shift
+    python3 "$ROOT/integrations/postfix/retire_legacy_content_scan.py" --check || fail 'legacy after-queue scanner needs operator attention.'
     exec python3 "$ROOT/integrations/postfix/manage_postfix.py" validate --server "$SERVER" --port "$PORT" "$@"
 fi
+python3 "$ROOT/integrations/postfix/retire_legacy_content_scan.py" || fail 'could not safely retire the legacy after-queue scanner.'
 exec bash "$ROOT/integrations/postfix/install.sh" --server "$SERVER" --port "$PORT" --reload "$@"
