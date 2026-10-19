@@ -21,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import net.spfbl.core.Client;
 import net.spfbl.core.User;
+import net.spfbl.data.ContentBayes;
 
 /** Focused smoke tests for the admin upload parser. */
 public final class BayesAdminMultipartSmoke {
@@ -59,6 +60,11 @@ public final class BayesAdminMultipartSmoke {
                 "Client contact email was not decoded correctly.");
         require("203.0.113.10/32".equals(clientForm.get("cidr")),
                 "CIDR was not decoded correctly.");
+        java.util.Map<String,String> decisionForm = BayesAdminHandler.parseUrlEncodedForm(
+                "csrf=token&action=decision-enable&cidr=203.0.113.10%2F32".getBytes(StandardCharsets.UTF_8));
+        require("decision-enable".equals(decisionForm.get("action"))
+                && "203.0.113.10/32".equals(decisionForm.get("cidr")),
+                "Bayes decision client action was not parsed correctly.");
         expectClientFormError("csrf=token&action=register&action=add-server", 400,
                 "Repeated client form field was accepted.");
         expectClientFormError("csrf=token&unknown=value", 400,
@@ -84,6 +90,40 @@ public final class BayesAdminMultipartSmoke {
                 "New customer account must not be assigned a static password or secret without TOTP onboarding.");
         require(User.storeMap(), "Native user account did not persist.");
         require(new java.io.File("./data/user.map").isFile(), "Native user map was not written.");
+        ContentBayes.load();
+        String adminPage = BayesAdminHandler.renderDashboard(user,
+                new BayesAdminHandler.DashboardTokens("training-token", "client-token"), null, null);
+        require((adminPage.contains("Decisão de entrega Bayes")
+                || adminPage.contains("Bayes delivery decision"))
+                && adminPage.contains("value=\"decision-enable\"")
+                && adminPage.contains("value=\"203.0.113.10/32\""),
+                "Admin server table did not render its per-server Bayes decision control.");
+        require("ACTIVE".equals(BayesAdminHandler.updateBayesDecisionClient(
+                "decision-enable", "203.0.113.10/32")),
+                "Admin could not activate a registered SPFBL server for Bayes decisions.");
+        require(ContentBayes.hasAllowedClient("203.0.113.10/32")
+                && ContentBayes.hasDecisionClient("203.0.113.10/32"),
+                "Bayes activation did not persist both content eligibility and delivery decision scope.");
+        require("ALREADY_ACTIVE".equals(BayesAdminHandler.updateBayesDecisionClient(
+                "decision-enable", "203.0.113.10/32")),
+                "Repeated Bayes activation was not idempotent.");
+        require("INACTIVE".equals(BayesAdminHandler.updateBayesDecisionClient(
+                "decision-disable", "203.0.113.10/32")),
+                "Admin could not disable a server's Bayes delivery decision.");
+        require(!ContentBayes.hasDecisionClient("203.0.113.10/32")
+                && ContentBayes.hasAllowedClient("203.0.113.10/32"),
+                "Disabling delivery decisions should retain passive content eligibility only.");
+        Client dnsblServer = Client.create("203.0.113.11/32", "mx-dnsbl.example.test",
+                "DNSBL", "abuse@example.test");
+        require(dnsblServer != null && Client.storeNow(), "DNSBL-only fixture was not created.");
+        require("SPFBL_REQUIRED".equals(BayesAdminHandler.updateBayesDecisionClient(
+                "decision-enable", "203.0.113.11/32")),
+                "Bayes decision activation accepted a server without SPFBL permission.");
+        require(!ContentBayes.hasAllowedClient("203.0.113.11/32")
+                && !ContentBayes.hasDecisionClient("203.0.113.11/32"),
+                "Rejected DNSBL-only activation changed Bayes client state.");
+        Client.drop("203.0.113.11/32");
+        require(Client.storeNow(), "DNSBL-only test fixture could not be removed.");
         String customerDashboard = BayesAdminHandler.renderCustomerDashboard(user, "single-use-token", null);
         require(customerDashboard.contains("action=\"/account/bayes/learn\""),
                 "Customer dashboard did not post training to the customer-only endpoint.");
@@ -113,6 +153,8 @@ public final class BayesAdminMultipartSmoke {
         System.out.println("PASS: native Bayes admin multipart parser preserves EML and rejects malformed forms.");
         System.out.println("PASS: native client admin form parser validates fields and decodes CIDRs safely.");
         System.out.println("PASS: native client registration matches CLIENT ADD and persists client.map.");
+        System.out.println("PASS: administrator can enable or disable Bayes delivery decisions per registered SPFBL server.");
+        System.out.println("PASS: Bayes decision enrollment is idempotent, persists, and rejects non-SPFBL servers.");
         System.out.println("PASS: native customer user is created and persisted without a static password.");
         System.out.println("PASS: customer dashboard renders account KPIs and the shared-model upload without admin controls.");
         System.out.println("PASS: customer Bayes access requires an enrolled client email and account KPIs classify delivery states.");

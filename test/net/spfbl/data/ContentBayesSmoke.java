@@ -83,10 +83,8 @@ public final class ContentBayesSmoke {
         require(ham != null && ham.isConfidentHam(), "Ham fixture should score below the ham threshold.");
         spam = ContentBayes.classifyForClient(parse(message(true, 1000)), "198.51.100.25/32");
         require(spam == null, "Passive enrollment must not enable a mail decision.");
-        spam = ContentBayes.scoreForClient(parse(message(true, 1000)), "198.51.100.25/32");
-        require(spam != null && spam.isConfidentSpam(), "Passive enrollment should return a Bayes score.");
         require(adminCommand(InetAddress.getLoopbackAddress(), "BAYES DECISION ADD 198.51.100.26/32")
-                .equals("NOT ENROLLED FOR SCORING\n"), "Decision scope must require passive enrollment first.");
+                .equals("NOT ENROLLED\n"), "Decision scope must require content enrollment first.");
         require(adminCommand(InetAddress.getLoopbackAddress(), "BAYES DECISION ADD 198.51.100.25/32")
                 .equals("ADDED\n"), "Bayes decision scope could not be explicitly enrolled.");
         spam = ContentBayes.classifyForClient(parse(message(true, 1000)), "198.51.100.25/32");

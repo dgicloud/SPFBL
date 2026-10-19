@@ -156,14 +156,6 @@ public final class ContentBayes {
         return classify(message, true, true, Subnet.normalizeCIDR(clientCIDR));
     }
 
-    /** Returns a passive score for an enrolled client without changing mail decisions. */
-    public static Prediction scoreForClient(MimeMessage message, String clientCIDR) {
-        if (!isClientAllowed(clientCIDR)) {
-            return null;
-        }
-        return classify(message, true, false, Subnet.normalizeCIDR(clientCIDR));
-    }
-
     private static Prediction classify(MimeMessage message, boolean requireEnabled,
             boolean confidentOnly, String requiredClientCIDR) {
         if (message == null) {

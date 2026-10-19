@@ -122,9 +122,11 @@ def prepare_spamd_client(host, port):
     client = command(host, port, "CLIENT ADD " + cidr + " audit.example.com SPFBL " + user_email)
     if "ADDED " not in client and "ALREADY EXISTS" not in client:
         raise RuntimeError("could not create isolated SPAMD test client: %r" % client)
+    # Legacy clients may intentionally FLAG reputation-only signals. A
+    # separately opted-in, high-confidence Bayes result must still reject.
     action = command(host, port, "CLIENT SET " + cidr + " ACTION RED FLAG")
     if not action.startswith(("UPDATED ", "ALREADY THIS VALUE")):
-        raise RuntimeError("could not make isolated Bayes test non-blocking: %r" % action)
+        raise RuntimeError("could not configure isolated Bayes test with RED=FLAG: %r" % action)
     require(command(host, port, "BAYES CLIENT ADD " + cidr), "ADDED\n", "enroll isolated SPAMD test client")
     require(command(host, port, "BAYES DECISION ADD " + cidr), "ADDED\n",
             "explicitly opt isolated SPAMD test client into decisions")
@@ -155,7 +157,7 @@ def main():
     require(command(host, port, "BAYES CLIENT ADD 198.18.250.11/32"), "ADDED\n", "BAYES CLIENT ADD")
     require(command(host, port, "BAYES CLIENT SHOW"), "198.18.250.11/32\n", "BAYES CLIENT SHOW after ADD")
     require(command(host, port, "BAYES DECISION ADD 198.18.250.12/32"),
-            "NOT ENROLLED FOR SCORING\n", "require passive enrollment before decision enrollment")
+            "NOT ENROLLED\n", "require passive enrollment before decision enrollment")
     require(command(host, port, "BAYES DECISION ADD 198.18.250.11/32"), "ADDED\n",
             "BAYES DECISION ADD")
     require(command(host, port, "BAYES DECISION SHOW"), "198.18.250.11/32\n",

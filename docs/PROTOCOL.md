@@ -14,8 +14,8 @@ SpamFox mantém o protocolo SPFBL. A nomenclatura SpamFox/SFOX aparece nos insta
 
 ## Integração de envelope
 
-Os instaladores de cPanel e Postfix consultam o core SPFBL usando o envelope SMTP. O modo `MONITOR` registra a decisão e mantém a entrega. A política de enforcement, quando desejada, deve ser habilitada conscientemente no cliente SPFBL depois de validar o comportamento do MTA.
+As integrações modulares de cPanel e Postfix consultam o core SPFBL usando o envelope SMTP. O modo `MONITOR` registra a decisão e mantém a entrega. A política de enforcement, quando desejada, deve ser habilitada conscientemente no cliente SPFBL depois de validar o comportamento do MTA.
 
 ## Treinamento de conteúdo
 
-O Bayes nativo recebe mensagens `.eml` rotuladas pelo painel web. Os clientes de cPanel e Postfix consultam o envelope SPFBL e não transmitem mensagens completas. Consulte [Bayes nativo](CONTENT-BAYES.md), [cPanel](../integrations/cpanel/README.md) e [Postfix](../integrations/postfix/README.md).
+O Bayes nativo recebe mensagens `.eml` rotuladas pelo painel web. A integração modular cPanel e a Postfix consultam somente envelope. O instalador legado `client/spamfox.cpanel.sh` e o DirectAdmin podem usar SPAMD para transmitir mensagens elegíveis ao core. Consulte [Bayes nativo](CONTENT-BAYES.md), [cPanel](../integrations/cpanel/README.md) e [Postfix](../integrations/postfix/README.md).

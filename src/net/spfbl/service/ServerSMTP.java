@@ -192,6 +192,32 @@ import org.jsoup.select.Elements;
  */
 public final class ServerSMTP extends Server {
 
+    private static final int MAX_COMPACTED_ATTACHMENT_BYTES = 2 * 1024 * 1024;
+    private static final int MAX_ARCHIVE_ENTRIES = 128;
+    private static final long MAX_ARCHIVE_EXPANDED_BYTES = 16L * 1024L * 1024L;
+
+    private static final class ArchiveInspectionLimitException extends IOException {
+
+        private ArchiveInspectionLimitException(String message) {
+            super(message);
+        }
+    }
+
+    private static byte[] readBoundedAttachment(InputStream inputStream, int maxBytes) throws IOException {
+        try (InputStream input = inputStream) {
+            ByteArrayOutputStream output = new ByteArrayOutputStream(Math.min(maxBytes, 8192));
+            byte[] buffer = new byte[8192];
+            int count;
+            while ((count = input.read(buffer)) != -1) {
+                if (output.size() + count > maxBytes) {
+                    return null;
+                }
+                output.write(buffer, 0, count);
+            }
+            return output.toByteArray();
+        }
+    }
+
     private final int PORTS;
     private final String HOSTNAME;
     private final String POSTMASTER;
@@ -3446,7 +3472,7 @@ public final class ServerSMTP extends Server {
                     } else if (type.startsWith("application/")) {
                         try {
                             int length = part.getSize();
-                            if (filename != null && length < 2097152) {
+                            if (filename != null && length < MAX_COMPACTED_ATTACHMENT_BYTES) {
                                 int index = filename.lastIndexOf('.') + 1;
                                 String extension = filename.substring(index);
                                 extension = extension.toLowerCase();
@@ -3529,7 +3555,8 @@ public final class ServerSMTP extends Server {
                                         contentSet.add(signature);
                                         contentSet.add("MALWARE=SPFBL.Document.AutoOpen.xls");
                                     }
-                                } else if (Core.EXECUTABLE_SET.contains(extension)) {
+                                } else if (Core.EXECUTABLE_SET.contains(extension)
+                                        && !Core.COMPACTED_SET.contains(extension)) {
                                     if (Core.HARMFUL_SET.contains(extension)) {
                                         contentSet.add("MALWARE=SPFBL.Executable." + extension);
                                     }
@@ -3545,36 +3572,47 @@ public final class ServerSMTP extends Server {
                                     Server.logInfo("executable attachment found: " + signature);
                                     contentSet.add(signature);
                                 } else if (Core.COMPACTED_SET.contains(extension)) {
-                                    ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-                                    MessageDigest messageDigest = MessageDigest.getInstance("MD5");
-                                    try (InputStream inputStream = part.getInputStream()) {
-                                        int code;
-                                        while ((code = inputStream.read()) != -1) {
-                                            outputStream.write(code);
-                                            messageDigest.update((byte) code);
-                                        }
-                                    }
-                                    Server.logTrace("PASSWORD SET " + passwordSet);
-                                    boolean compacted = true;
-                                    if (extension.equals("zip")) {
-                                        try {
-                                            byte[] byteArray = outputStream.toByteArray();
+                                    byte[] byteArray = readBoundedAttachment(
+                                            part.getInputStream(), MAX_COMPACTED_ATTACHMENT_BYTES - 1);
+                                    if (byteArray != null) {
+                                        MessageDigest messageDigest = MessageDigest.getInstance("MD5");
+                                        messageDigest.update(byteArray);
+                                        int archiveLength = byteArray.length;
+                                        Server.logTrace("PASSWORD SET " + passwordSet);
+                                        boolean compacted = true;
+                                        if (extension.equals("zip")) {
+                                            try {
                                             ByteArrayInputStream inputStream = new ByteArrayInputStream(byteArray);
                                             try {
                                                 ZipInputStream zis = new ZipInputStream(inputStream);
                                                 ZipEntry entry;
+                                                int entryCount = 0;
+                                                long expandedBytes = 0;
                                                 while ((entry = zis.getNextEntry()) != null) {
+                                                    if (++entryCount > MAX_ARCHIVE_ENTRIES) {
+                                                        throw new ArchiveInspectionLimitException("archive entry limit exceeded");
+                                                    }
                                                     String filename2 = entry.getName();
                                                     int index2 = filename2.lastIndexOf('.') + 1;
                                                     String extension2 = filename2.substring(index2);
                                                     extension2 = extension2.toLowerCase();
-                                                    if (Core.EXECUTABLE_SET.contains(extension2)) {
-                                                        long length2 = entry.getSize();
-                                                        MessageDigest messageDigest2 = MessageDigest.getInstance("MD5");
-                                                        int code;
-                                                        while ((code = zis.read()) != -1) {
-                                                            messageDigest2.update((byte) code);
+                                                    boolean executable = Core.EXECUTABLE_SET.contains(extension2);
+                                                    MessageDigest messageDigest2 = executable
+                                                            ? MessageDigest.getInstance("MD5") : null;
+                                                    long length2 = 0;
+                                                    byte[] buffer = new byte[8192];
+                                                    int count;
+                                                    while ((count = zis.read(buffer)) != -1) {
+                                                        expandedBytes += count;
+                                                        length2 += count;
+                                                        if (expandedBytes > MAX_ARCHIVE_EXPANDED_BYTES) {
+                                                            throw new ArchiveInspectionLimitException("archive expanded size limit exceeded");
                                                         }
+                                                        if (messageDigest2 != null) {
+                                                            messageDigest2.update(buffer, 0, count);
+                                                        }
+                                                    }
+                                                    if (messageDigest2 != null) {
                                                         String md5 = Core.md5Hex(messageDigest2.digest());
                                                         String signature = md5 + "." + length2 + "." + extension2;
                                                         Server.logInfo("compacted executable found: " + signature);
@@ -3585,16 +3623,19 @@ public final class ServerSMTP extends Server {
                                             } catch (ZipException ex) {
                                                 // TODO: implement decrypt algorithm.
                                                 contentSet.add("MALWARE=SPFBL.ZIP.Encrypted");
+                                            } catch (ArchiveInspectionLimitException ex) {
+                                                contentSet.add("MALWARE=SPFBL.Archive.Limit");
                                             }
                                         } catch (Exception ex) {
                                             Server.logError(ex);
+                                            }
                                         }
-                                    }
-                                    if (compacted) {
-                                        String md5 = Core.md5Hex(messageDigest.digest());
-                                        String signature = md5 + "." + length + "." + extension;
-                                        Server.logInfo("compacted attachment found: " + signature);
-                                        contentSet.add(signature);
+                                        if (compacted) {
+                                            String md5 = Core.md5Hex(messageDigest.digest());
+                                            String signature = md5 + "." + archiveLength + "." + extension;
+                                            Server.logInfo("compacted attachment found: " + signature);
+                                            contentSet.add(signature);
+                                        }
                                     }
                                 }
                             }
@@ -4046,7 +4087,7 @@ public final class ServerSMTP extends Server {
                         } else if (type.startsWith("application/")) {
                             try {
                                 int length = part.getSize();
-                                if (filename != null && length < 2097152) {
+                                if (filename != null && length < MAX_COMPACTED_ATTACHMENT_BYTES) {
                                     int index = filename.lastIndexOf('.') + 1;
                                     String extension = filename.substring(index);
                                     extension = extension.toLowerCase();
@@ -4127,7 +4168,8 @@ public final class ServerSMTP extends Server {
                                             contentSet.add(signature);
                                             contentSet.add("MALWARE=SPFBL.Document.AutoOpen.xls");
                                         }
-                                    } else if (Core.EXECUTABLE_SET.contains(extension)) {
+                                    } else if (Core.EXECUTABLE_SET.contains(extension)
+                                            && !Core.COMPACTED_SET.contains(extension)) {
                                         contentSet.add("MALWARE=SPFBL.Executable." + extension);
                                         MessageDigest messageDigest = MessageDigest.getInstance("MD5");
                                         try (InputStream inputStream = part.getInputStream()) {
@@ -4141,36 +4183,47 @@ public final class ServerSMTP extends Server {
                                         Server.logInfo("executable attachment found: " + signature);
                                         contentSet.add(signature);
                                     } else if (Core.COMPACTED_SET.contains(extension)) {
-                                        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-                                        MessageDigest messageDigest = MessageDigest.getInstance("MD5");
-                                        try (InputStream inputStream = part.getInputStream()) {
-                                            int code;
-                                            while ((code = inputStream.read()) != -1) {
-                                                outputStream.write(code);
-                                                messageDigest.update((byte) code);
-                                            }
-                                        }
-                                        Server.logTrace("PASSWORD SET " + passwordSet);
-                                        boolean compacted = true;
-                                        if (extension.equals("zip")) {
-                                            try {
-                                                byte[] byteArray = outputStream.toByteArray();
+                                        byte[] byteArray = readBoundedAttachment(
+                                                part.getInputStream(), MAX_COMPACTED_ATTACHMENT_BYTES - 1);
+                                        if (byteArray != null) {
+                                            MessageDigest messageDigest = MessageDigest.getInstance("MD5");
+                                            messageDigest.update(byteArray);
+                                            int archiveLength = byteArray.length;
+                                            Server.logTrace("PASSWORD SET " + passwordSet);
+                                            boolean compacted = true;
+                                            if (extension.equals("zip")) {
+                                                try {
                                                 ByteArrayInputStream inputStream = new ByteArrayInputStream(byteArray);
                                                 try {
                                                     ZipInputStream zis = new ZipInputStream(inputStream);
                                                     ZipEntry entry;
+                                                    int entryCount = 0;
+                                                    long expandedBytes = 0;
                                                     while ((entry = zis.getNextEntry()) != null) {
+                                                        if (++entryCount > MAX_ARCHIVE_ENTRIES) {
+                                                            throw new ArchiveInspectionLimitException("archive entry limit exceeded");
+                                                        }
                                                         String filename2 = entry.getName();
                                                         int index2 = filename2.lastIndexOf('.') + 1;
                                                         String extension2 = filename2.substring(index2);
                                                         extension2 = extension2.toLowerCase();
-                                                        if (Core.EXECUTABLE_SET.contains(extension2)) {
-                                                            long length2 = entry.getSize();
-                                                            MessageDigest messageDigest2 = MessageDigest.getInstance("MD5");
-                                                            int code;
-                                                            while ((code = zis.read()) != -1) {
-                                                                messageDigest2.update((byte) code);
+                                                        boolean executable = Core.EXECUTABLE_SET.contains(extension2);
+                                                        MessageDigest messageDigest2 = executable
+                                                                ? MessageDigest.getInstance("MD5") : null;
+                                                        long length2 = 0;
+                                                        byte[] buffer = new byte[8192];
+                                                        int count;
+                                                        while ((count = zis.read(buffer)) != -1) {
+                                                            expandedBytes += count;
+                                                            length2 += count;
+                                                            if (expandedBytes > MAX_ARCHIVE_EXPANDED_BYTES) {
+                                                                throw new ArchiveInspectionLimitException("archive expanded size limit exceeded");
                                                             }
+                                                            if (messageDigest2 != null) {
+                                                                messageDigest2.update(buffer, 0, count);
+                                                            }
+                                                        }
+                                                        if (messageDigest2 != null) {
                                                             String md5 = Core.md5Hex(messageDigest2.digest());
                                                             String signature = md5 + "." + length2 + "." + extension2;
                                                             Server.logInfo("compacted executable found: " + signature);
@@ -4183,31 +4236,47 @@ public final class ServerSMTP extends Server {
                                                     if (!query.isRecipientAbuse()) {
                                                         contentSet.add("MALWARE=SPFBL.Encrypted.zip");
                                                     }
+                                                } catch (ArchiveInspectionLimitException ex) {
+                                                    contentSet.add("MALWARE=SPFBL.Archive.Limit");
                                                 }
-                                            } catch (Exception ex) {
-                                                Server.logError(ex);
-                                            }
-                                        } else if (extension.equals("rar")) {
-                                            try {
-                                                byte[] byteArray = outputStream.toByteArray();
+                                                } catch (Exception ex) {
+                                                    Server.logError(ex);
+                                                }
+                                            } else if (extension.equals("rar")) {
+                                                try {
                                                 ByteArrayInputStream inputStream = new ByteArrayInputStream(byteArray);
 //                                                try {
                                                     Archive archive = new Archive(inputStream);
                                                     FileHeader fileHeader;
+                                                    int entryCount = 0;
+                                                    long expandedBytes = 0;
                                                     while ((fileHeader = archive.nextFileHeader()) != null) {
+                                                        if (++entryCount > MAX_ARCHIVE_ENTRIES) {
+                                                            throw new ArchiveInspectionLimitException("archive entry limit exceeded");
+                                                        }
                                                         String filename2 = fileHeader.getFileName();
                                                         int index2 = filename2.lastIndexOf('.') + 1;
                                                         String extension2 = filename2.substring(index2);
                                                         extension2 = extension2.toLowerCase();
-                                                        if (Core.EXECUTABLE_SET.contains(extension2)) {
-                                                            long length2 = fileHeader.getUnpSize();
-                                                            MessageDigest messageDigest2 = MessageDigest.getInstance("MD5");
-                                                            try (InputStream is = archive.getInputStream(fileHeader)) {
-                                                                int code;
-                                                                while ((code = is.read()) != -1) {
-                                                                    messageDigest2.update((byte) code);
+                                                        boolean executable = Core.EXECUTABLE_SET.contains(extension2);
+                                                        MessageDigest messageDigest2 = executable
+                                                                ? MessageDigest.getInstance("MD5") : null;
+                                                        long length2 = 0;
+                                                        try (InputStream is = archive.getInputStream(fileHeader)) {
+                                                            byte[] buffer = new byte[8192];
+                                                            int count;
+                                                            while ((count = is.read(buffer)) != -1) {
+                                                                expandedBytes += count;
+                                                                length2 += count;
+                                                                if (expandedBytes > MAX_ARCHIVE_EXPANDED_BYTES) {
+                                                                    throw new ArchiveInspectionLimitException("archive expanded size limit exceeded");
+                                                                }
+                                                                if (messageDigest2 != null) {
+                                                                    messageDigest2.update(buffer, 0, count);
                                                                 }
                                                             }
+                                                        }
+                                                        if (messageDigest2 != null) {
                                                             String md5 = Core.md5Hex(messageDigest2.digest());
                                                             String signature = md5 + "." + length2 + "." + extension2;
                                                             Server.logInfo("compacted executable found: " + signature);
@@ -4221,15 +4290,18 @@ public final class ServerSMTP extends Server {
 //                                                        contentSet.add("MALWARE=SPFBL.Encrypted.rar");
 //                                                    }
 //                                                }
-                                            } catch (Exception ex) {
-                                                Server.logError(ex);
+                                                } catch (ArchiveInspectionLimitException ex) {
+                                                    contentSet.add("MALWARE=SPFBL.Archive.Limit");
+                                                } catch (Exception ex) {
+                                                    Server.logError(ex);
+                                                }
                                             }
-                                        }
-                                        if (compacted) {
-                                            String md5 = Core.md5Hex(messageDigest.digest());
-                                            String signature = md5 + "." + length + "." + extension;
-                                            Server.logInfo("compacted attachment found: " + signature);
-                                            contentSet.add(signature);
+                                            if (compacted) {
+                                                String md5 = Core.md5Hex(messageDigest.digest());
+                                                String signature = md5 + "." + archiveLength + "." + extension;
+                                                Server.logInfo("compacted attachment found: " + signature);
+                                                contentSet.add(signature);
+                                            }
                                         }
                                     } else if (extension.equals("eml")) {
                                         if (type.equals("application/octet-stream") && query.isRecipientAbuse()) {

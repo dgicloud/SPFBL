@@ -7631,13 +7631,7 @@ public class User implements Serializable, Comparable<User> {
                         }
                         break;                            
                     case CONTENT_BAYES_SPAM:
-                        if (actionRED == Action.FLAG) {
-                            resultReturn = "FLAG";
-                        } else if (actionRED == Action.HOLD) {
-                            resultReturn = "HOLD";
-                        } else {
-                            resultReturn = "REJECT";
-                        }
+                        resultReturn = "REJECT";
                         break;
                     default:
                         Server.logError("filter not defined: " + resultFilter);

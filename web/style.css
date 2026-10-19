@@ -1029,6 +1029,15 @@ html[data-theme="dark"] body.query-detail-page button.recipient:hover {
 .bayes-server-table td { vertical-align: middle; }
 .bayes-server-table td code { color: var(--table-text); font-size: 12px; }
 .bayes-permission-tag { display: inline-block; padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--raised-surface); color: var(--ink); font-size: 11px; font-weight: 800; }
+.bayes-decision-cell { min-width: 190px; }
+.bayes-decision-state { display: inline-flex; align-items: center; min-height: 24px; padding: 4px 9px; border: 1px solid var(--line); border-radius: 999px; background: var(--soft-surface); color: var(--muted); font-size: 11px; font-weight: 800; white-space: nowrap; }
+.bayes-decision-state.is-enabled { border-color: #a4dcc4; background: rgba(23,166,115,.09); color: var(--green); }
+.bayes-decision-state.is-paused { border-color: #e6c98b; background: rgba(214,148,40,.10); color: #9a680e; }
+.bayes-decision-state.is-unavailable { border-color: #e8a5ad; background: rgba(217,77,91,.07); color: var(--red); white-space: normal; }
+.bayes-decision-form { margin-top: 7px; }
+.bayes-small-submit { min-height: 30px; margin: 0; padding: 0 11px; border-radius: 9px; font-size: 11px; }
+.bayes-small-submit.is-danger { background: #b4233b; }
+.bayes-small-submit.is-danger:hover { background: #8f1d31; }
 .bayes-client-count { width: 32px; height: 32px; font-size: 13px; }
 .bayes-client-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .bayes-client-list code { padding: 7px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--soft-surface); color: var(--table-text); font-size: 12px; }
@@ -1078,7 +1087,7 @@ html[data-theme="dark"] .bayes-client-form input, html[data-theme="dark"] .bayes
 	.bayes-card { padding: 17px; }
 	.bayes-upload-form fieldset { flex-direction: column; }
 	.bayes-client-form-grid { grid-template-columns: 1fr; }
-	.bayes-server-table { min-width: 620px; }
+	.bayes-server-table { min-width: 820px; }
 	.bayes-admin-footer { flex-direction: column; }
 }
 

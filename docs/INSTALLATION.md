@@ -22,7 +22,7 @@ Depois da instalação, entre com a conta administradora e abra **Firewall** no 
 - [cPanel/Exim](../integrations/cpanel/README.md)
 - [Postfix](../integrations/postfix/README.md)
 
-Cadastre cada MTA no core e na allowlist da VM antes da instalação do cliente. Os clientes consultam somente o envelope; não enviam arquivos `.eml`. O Bayes nativo é treinado com mensagens rotuladas pelo painel do SPFBL.
+Cadastre cada MTA no core e na allowlist da VM antes da instalação do cliente. As integrações modulares de cPanel e Postfix consultam somente o envelope; não enviam arquivos `.eml`. O instalador legado cPanel e o DirectAdmin podem habilitar SPAMD para análise de conteúdo de mensagens elegíveis. O Bayes nativo é treinado com mensagens rotuladas pelo painel do SPFBL.
 
 ## Validação
 

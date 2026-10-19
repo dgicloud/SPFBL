@@ -15,7 +15,7 @@ Esta pasta contém clientes para consultar o core SPFBL nos MTAs e ferramentas r
 3. Instale o cliente adequado no cPanel ou Postfix.
 4. Treine o Bayes nativo pelo painel web com mensagens `.eml` rotuladas como SPAM ou HAM.
 
-Os instaladores de MTA consultam o envelope no SPFBL. O Exim pode enviar cabeçalhos e metadados de entrega ao próprio core para exibição no painel; nenhuma mensagem `.eml` é enviada ao MTA ou classificador de terceiros.
+Os instaladores modulares desta pasta consultam o envelope no SPFBL. O Exim pode enviar cabeçalhos e metadados de entrega ao próprio core para exibição no painel; nenhuma mensagem `.eml` é enviada por essas integrações ao MTA ou classificador de terceiros. O instalador legado `client/spamfox.cpanel.sh` e o DirectAdmin são fluxos separados e podem habilitar SPAMD no core para mensagens elegíveis.
 
 O core SPFBL e seu protocolo permanecem intactos. Identidade SpamFox/SFOX, direitos autorais e atribuições seguem a licença e os avisos do projeto em `licence.txt`.
 

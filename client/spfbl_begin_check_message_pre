@@ -68,14 +68,7 @@
     condition = ${if eq {$runrc}{7}{false}{true}}
     message = 5.7.1 SpamFox (SFOX) this message was detected as possible malware. See http://spfbl.net/en/feedback
     log_message = SFOX check malware.
-  accept
-    condition = ${if eq {$acl_c_spfbl_result}{17}{true}{false}}
-    add_header = X-Spam-Status: No
-  accept
-    condition = ${if eq {$acl_c_spfbl_result}{6}{true}{false}}
-    add_header = X-Spam-Status: Yes
   warn
-    condition = ${if eq {$acl_c_spfbl_result}{7}{true}{false}}
     condition = ${if < {$message_size}{2m}{true}{false}}
     spam = $message_exim_id:true / tmo=10s
   drop
@@ -86,6 +79,12 @@
     condition = ${if eq {$spam_score}{2.0}{true}{false}}
     message = 5.7.1 SpamFox (SFOX) blocked by unwanted content. See http://spfbl.net/en/feedback
     log_message = SFOX check blocked.
+  accept
+    condition = ${if eq {$acl_c_spfbl_result}{17}{true}{false}}
+    add_header = X-Spam-Status: No
+  accept
+    condition = ${if eq {$acl_c_spfbl_result}{6}{true}{false}}
+    add_header = X-Spam-Status: Yes
   accept
     condition = ${if eq {$spam_score}{1.0}{true}{false}}
     add_header = X-Spam-Status: No

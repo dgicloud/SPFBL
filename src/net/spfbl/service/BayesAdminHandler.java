@@ -478,6 +478,30 @@ final class BayesAdminHandler implements HttpHandler {
             String cidr = fields.get("cidr");
             String hostname = fields.get("hostname");
             String permission = fields.get("permission");
+            if ("decision-enable".equals(action) || "decision-disable".equals(action)) {
+                if (cidr == null || email != null || customerName != null || hostname != null || permission != null) {
+                    renderClientResult(exchange, user,
+                            "Informe somente o IP/CIDR do servidor para alterar a decisão Bayes.", true);
+                    return;
+                }
+                String result = updateBayesDecisionClient(action, cidr.trim());
+                String normalizedCIDR = cidr.trim();
+                try {
+                    Client registered = Client.getByCIDR(normalizedCIDR);
+                    if (registered != null) normalizedCIDR = registered.getCIDR();
+                } catch (ProcessException ignored) {
+                    // The update result below will report an invalid or unregistered CIDR.
+                }
+                boolean error = !("ACTIVE".equals(result) || "INACTIVE".equals(result)
+                        || "ALREADY_ACTIVE".equals(result) || "ALREADY_INACTIVE".equals(result));
+                if ("ACTIVE".equals(result) || "INACTIVE".equals(result)) {
+                    Server.logInfo("Native Bayes decision scope: admin=" + user.getEmail()
+                            + " action=" + action + " cidr=" + normalizedCIDR);
+                }
+                renderClientResult(exchange, user,
+                        decisionClientNotice(result, normalizedCIDR, user.getLocale()), error);
+                return;
+            }
             if (email == null || cidr == null || hostname == null || permission == null) {
                 renderClientResult(exchange, user,
                         "Preencha o e-mail do cliente, o IP/CIDR, o hostname e a permissão.", true);
@@ -589,6 +613,97 @@ final class BayesAdminHandler implements HttpHandler {
         }
     }
 
+    /**
+     * Opts a registered SPFBL server into or out of content-based delivery decisions.
+     * Enabling also enrolls the CIDR in the Bayes content-client allowlist required by the core.
+     */
+    static synchronized String updateBayesDecisionClient(String action, String cidr) {
+        final boolean activate;
+        if ("decision-enable".equals(action)) {
+            activate = true;
+        } else if ("decision-disable".equals(action)) {
+            activate = false;
+        } else {
+            return "INVALID_ACTION";
+        }
+        if (cidr == null || cidr.trim().isEmpty()) return "INVALID_CIDR";
+        final Client client;
+        try {
+            client = Client.getByCIDR(cidr.trim());
+        } catch (ProcessException ex) {
+            return "INVALID_CIDR";
+        }
+        if (client == null) return "NOT_REGISTERED";
+        if (!client.isPermission("SPFBL")) return "SPFBL_REQUIRED";
+        String normalizedCIDR = client.getCIDR();
+        if (!ContentBayes.isPersistenceWritable()) return "STORE_FAILED";
+
+        if (activate) {
+            if (ContentBayes.hasDecisionClient(normalizedCIDR)) return "ALREADY_ACTIVE";
+            boolean addedContentClient = false;
+            if (!ContentBayes.hasAllowedClient(normalizedCIDR)) {
+                if (!ContentBayes.addAllowedClient(normalizedCIDR)) return "LIMIT_REACHED";
+                addedContentClient = true;
+            }
+            if (!ContentBayes.addDecisionClient(normalizedCIDR)) {
+                if (addedContentClient) {
+                    ContentBayes.dropAllowedClient(normalizedCIDR);
+                    ContentBayes.store();
+                }
+                return "LIMIT_REACHED";
+            }
+            if (!ContentBayes.store()) {
+                ContentBayes.dropDecisionClient(normalizedCIDR);
+                if (addedContentClient) ContentBayes.dropAllowedClient(normalizedCIDR);
+                ContentBayes.store();
+                return "STORE_FAILED";
+            }
+            return "ACTIVE";
+        }
+
+        if (!ContentBayes.hasDecisionClient(normalizedCIDR)) return "ALREADY_INACTIVE";
+        if (!ContentBayes.dropDecisionClient(normalizedCIDR)) return "ALREADY_INACTIVE";
+        if (!ContentBayes.store()) {
+            ContentBayes.addDecisionClient(normalizedCIDR);
+            ContentBayes.store();
+            return "STORE_FAILED";
+        }
+        return "INACTIVE";
+    }
+
+    private static String decisionClientNotice(String result, String cidr, Locale locale) {
+        boolean english = locale != null && "en".equalsIgnoreCase(locale.getLanguage());
+        if ("ACTIVE".equals(result)) {
+            return english ? "Bayes delivery decisions enabled for " + cidr + "."
+                    : "Decisão de entrega Bayes ativada para " + cidr + ".";
+        } else if ("INACTIVE".equals(result)) {
+            return english ? "Bayes delivery decisions disabled for " + cidr + "."
+                    : "Decisão de entrega Bayes desativada para " + cidr + ".";
+        } else if ("ALREADY_ACTIVE".equals(result)) {
+            return english ? "Bayes delivery decisions are already enabled for " + cidr + "."
+                    : "A decisão de entrega Bayes já está ativa para " + cidr + ".";
+        } else if ("ALREADY_INACTIVE".equals(result)) {
+            return english ? "Bayes delivery decisions are already disabled for " + cidr + "."
+                    : "A decisão de entrega Bayes já está inativa para " + cidr + ".";
+        } else if ("NOT_REGISTERED".equals(result)) {
+            return english ? "Register this server in the SPFBL core first."
+                    : "Cadastre este servidor no core SPFBL antes de habilitar o Bayes.";
+        } else if ("SPFBL_REQUIRED".equals(result)) {
+            return english ? "Only servers registered with SPFBL permission can use Bayes delivery decisions."
+                    : "Somente servidores com permissão SPFBL podem usar decisões de entrega Bayes.";
+        } else if ("LIMIT_REACHED".equals(result)) {
+            return english ? "The Bayes client limit was reached; no change was saved."
+                    : "O limite de clientes Bayes foi atingido; nenhuma alteração foi salva.";
+        } else if ("STORE_FAILED".equals(result)) {
+            return english ? "Bayes storage is unavailable; the change was rolled back."
+                    : "O armazenamento Bayes está indisponível; a alteração foi revertida.";
+        } else if ("INVALID_CIDR".equals(result)) {
+            return english ? "Invalid IP or CIDR. No change was saved."
+                    : "IP ou CIDR inválido. Nenhuma alteração foi salva.";
+        }
+        return english ? "Invalid Bayes client action." : "Ação Bayes inválida.";
+    }
+
     private static String clientErrorMessage(String error) {
         if ("INVALID CIDR".equals(error)) return "IP ou CIDR inválido.";
         if ("INVALID CLIENT".equals(error)) return "Hostname ou IP/CIDR inválido.";
@@ -647,7 +762,7 @@ final class BayesAdminHandler implements HttpHandler {
         return result;
     }
 
-    private static String renderDashboard(User user, DashboardTokens tokens,
+    static String renderDashboard(User user, DashboardTokens tokens,
             UploadReport report, ClientReport clientReport) {
         Locale locale = user.getLocale();
         boolean english = locale != null && "en".equalsIgnoreCase(locale.getLanguage());
@@ -667,7 +782,7 @@ final class BayesAdminHandler implements HttpHandler {
                 .append("<meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n")
                 .append("<link rel=\"icon\" href=\"/favicon.png\"><title>")
                 .append(english ? "SpamFox Bayes administration" : "Administração Bayes · SpamFox")
-                .append("</title><link rel=\"stylesheet\" href=\"/style.css?v=spamfox-requests-1\">\n")
+                .append("</title><link rel=\"stylesheet\" href=\"/style.css?v=spamfox-bayes-decisions-1\">\n")
                 .append("<script src=\"/theme.js?v=spamfox-ui-20261017\" defer></script>\n")
                 .append("</head><body class=\"bayes-admin-page\"><main class=\"bayes-admin-shell\">\n")
                 .append("<header class=\"bayes-admin-topbar\"><a class=\"bayes-admin-brand\" href=\"/admin/bayes/\"><img src=\"/logo.png\" alt=\"SpamFox\"><span><strong>SpamFox</strong><small>")
@@ -695,7 +810,7 @@ final class BayesAdminHandler implements HttpHandler {
         appendKpi(html, english ? "SPAM samples" : "Amostras SPAM", spamDocs, "coral", "✉");
         appendKpi(html, english ? "HAM samples" : "Amostras HAM", hamDocs, "green", "✓");
         appendKpi(html, english ? "Known features" : "Termos conhecidos", vocabulary, "blue", "⌕");
-        appendKpi(html, english ? "Scoring clients" : "Clientes autorizados", allowed, "purple", "⌘");
+        appendKpi(html, english ? "Content-enabled clients" : "Clientes habilitados para conteúdo", allowed, "purple", "⌘");
         html.append("</section>\n<section class=\"bayes-admin-grid\"><article class=\"bayes-card bayes-status-card\"><div class=\"bayes-card-heading\"><div><p class=\"bayes-eyebrow\">")
                 .append(english ? "CORE HEALTH" : "SAÚDE DO CORE")
                 .append("</p><h2>").append(english ? "Service status" : "Status do serviço")
@@ -711,8 +826,8 @@ final class BayesAdminHandler implements HttpHandler {
         appendStatus(html, english ? "Spam confidence threshold" : "Limite de confiança SPAM", threshold, "neutral");
         appendStatus(html, english ? "Decision-enabled clients" : "Clientes com decisão habilitada", decision, "neutral");
         html.append("</dl><p class=\"bayes-help\">")
-                .append(english ? "A scoring client can receive a score without allowing Bayes to change mail delivery."
-                        : "Um cliente pode enviar mensagens para pontuação sem permitir que o Bayes altere a entrega.")
+                .append(english ? "Register a content client first; enable delivery decisions only after its SPAMD integration was validated."
+                        : "Cadastre primeiro o cliente de conteúdo; habilite decisões de entrega somente após validar sua integração SPAMD.")
                 .append("</p></article>\n")
                 .append("<article class=\"bayes-card bayes-training-card\"><div class=\"bayes-card-heading\"><div><p class=\"bayes-eyebrow\">")
                 .append(english ? "MANUAL LABELING" : "ROTULAGEM MANUAL")
@@ -752,7 +867,7 @@ final class BayesAdminHandler implements HttpHandler {
             html.append("</section>\n");
         }
         appendClientManagement(html, tokens.clients, clientReport, english);
-        appendClientList(html, english ? "Clients sending content for scoring" : "Clientes autorizados para pontuação",
+        appendClientList(html, english ? "Clients eligible for content inspection" : "Clientes elegíveis para inspeção de conteúdo",
                 ContentBayes.allowedClients(), english);
         appendClientList(html, english ? "Clients with active delivery decisions" : "Clientes com decisão de entrega ativa",
                 ContentBayes.decisionClients(), english);
@@ -826,8 +941,8 @@ final class BayesAdminHandler implements HttpHandler {
                 .append("</p><h2>").append(english ? "Customers and mail servers" : "Clientes e servidores de e-mail")
                 .append("</h2></div><span class=\"bayes-client-count\">").append(clients.size()).append("</span></div><p class=\"bayes-help\">")
                 .append(english
-                        ? "This uses native CLIENT ADD and creates a web user when needed. New accounts receive the core's TOTP setup email; existing credentials are left alone. This does not enable Bayes delivery decisions."
-                        : "O cadastro usa CLIENT ADD e cria o usuário web quando necessário. Contas novas recebem o e-mail de configuração TOTP do core; credenciais existentes não são alteradas. Isso não habilita decisões de entrega do Bayes.")
+                        ? "This uses native CLIENT ADD and creates a web user when needed. New accounts receive the core's TOTP setup email; existing credentials are left alone. Bayes delivery decisions can be enabled per SPFBL server below; they may reject high-confidence spam only while the global model is enabled and the server routes eligible messages to this core."
+                        : "O cadastro usa CLIENT ADD e cria o usuário web quando necessário. Contas novas recebem o e-mail de configuração TOTP do core; credenciais existentes não são alteradas. A decisão Bayes pode ser habilitada por servidor abaixo; mensagens com alta confiança de SPAM poderão ser rejeitadas quando o modelo global estiver ativo e o servidor enviar mensagens elegíveis para este core.")
                 .append("</p>");
         if (report != null) {
             html.append("<div class=\"bayes-client-notice ").append(report.error ? "is-error" : "is-success")
@@ -870,17 +985,47 @@ final class BayesAdminHandler implements HttpHandler {
                 .append(english ? "Customer" : "Cliente").append("</th><th>")
                 .append(english ? "Hostname" : "Hostname").append("</th><th>")
                 .append(english ? "IP / CIDR" : "IP / CIDR").append("</th><th>")
-                .append(english ? "Access" : "Acesso").append("</th></tr></thead><tbody>");
+                .append(english ? "Access" : "Acesso").append("</th><th>")
+                .append(english ? "Bayes delivery decision" : "Decisão de entrega Bayes")
+                .append("</th></tr></thead><tbody>");
         for (Client client : clients) {
+            boolean spfblPermission = client.isPermission("SPFBL");
+            boolean decisionEnabled = ContentBayes.hasDecisionClient(client.getCIDR());
+            boolean bayesEnabled = ContentBayes.isEnabled();
             html.append("<tr><td>").append(escapeHtml(client.getEmail() == null
                     ? (english ? "Unassigned" : "Sem cliente associado") : client.getEmail()))
                     .append("</td><td>").append(escapeHtml(client.getDomain())).append("</td><td><code>")
                     .append(escapeHtml(client.getCIDR())).append("</code></td><td><span class=\"bayes-permission-tag\">")
                     .append(escapeHtml(client.isAdministrator() ? "ADMIN" : client.getPermission().name()))
-                    .append("</span></td></tr>");
+                    .append("</span></td><td class=\"bayes-decision-cell\">");
+            if (!spfblPermission) {
+                html.append("<span class=\"bayes-decision-state is-unavailable\">")
+                        .append(english ? "Requires SPFBL permission" : "Exige permissão SPFBL")
+                        .append("</span>");
+            } else {
+                String stateClass = decisionEnabled ? (bayesEnabled ? "is-enabled" : "is-paused") : "is-disabled";
+                String stateLabel = decisionEnabled
+                        ? (bayesEnabled
+                                ? (english ? "Active" : "Ativa")
+                                : (english ? "Configured · model paused" : "Configurada · modelo pausado"))
+                        : (english ? "Inactive" : "Inativa");
+                String decisionAction = decisionEnabled ? "decision-disable" : "decision-enable";
+                String buttonLabel = decisionEnabled
+                        ? (english ? "Disable" : "Desativar")
+                        : (english ? "Enable" : "Ativar");
+                html.append("<span class=\"bayes-decision-state ").append(stateClass).append("\">")
+                        .append(stateLabel).append("</span><form class=\"bayes-decision-form\" method=\"post\" action=\"")
+                        .append(CLIENT_PATH).append("\"><input type=\"hidden\" name=\"csrf\" value=\"")
+                        .append(escapeAttribute(csrfToken)).append("\"><input type=\"hidden\" name=\"action\" value=\"")
+                        .append(decisionAction).append("\"><input type=\"hidden\" name=\"cidr\" value=\"")
+                        .append(escapeAttribute(client.getCIDR())).append("\"><button class=\"bayes-submit bayes-small-submit")
+                        .append(decisionEnabled ? " is-danger" : "").append("\" type=\"submit\">")
+                        .append(buttonLabel).append("</button></form>");
+            }
+            html.append("</td></tr>");
         }
         if (clients.isEmpty()) {
-            html.append("<tr><td colspan=\"4\" class=\"bayes-empty\">")
+            html.append("<tr><td colspan=\"5\" class=\"bayes-empty\">")
                     .append(english ? "No customer servers registered." : "Nenhum servidor de cliente cadastrado.")
                     .append("</td></tr>");
         }

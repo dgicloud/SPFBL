@@ -10,6 +10,8 @@ javac -encoding UTF-8 -source 8 -target 8 -cp "$ROOT/lib/*" -d "$WORK/classes" @
 mkdir -p "$WORK/classes/net/spfbl/core"
 cp "$ROOT"/src/net/spfbl/core/*.obj "$WORK/classes/net/spfbl/core/"
 (cd "$WORK/runtime" && java -cp "$WORK/classes:$ROOT/lib/*" net.spfbl.data.ContentBayesSmoke)
+(cd "$WORK/runtime" && java -cp "$WORK/classes:$ROOT/lib/*" net.spfbl.service.ServerSPFBLBayesPolicySmoke)
 (cd "$WORK/runtime" && java -cp "$WORK/classes:$ROOT/lib/*" net.spfbl.service.BayesAdminMultipartSmoke)
+(cd "$WORK/runtime" && java -cp "$WORK/classes:$ROOT/lib/*" net.spfbl.service.ServerSMTPArchiveSmoke)
 (cd "$WORK/runtime" && java -cp "$WORK/classes:$ROOT/lib/*" net.spfbl.service.FirewallAdminSmoke "${SPAMFOX_FIREWALL_PREVIEW:-}")
 (cd "$WORK/runtime" && java -cp "$WORK/classes:$ROOT/lib/*" net.spfbl.service.ClientRequestMetricsSmoke "${SPAMFOX_REQUESTS_PREVIEW:-}")

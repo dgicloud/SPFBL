@@ -16,12 +16,10 @@
  */
 package net.spfbl.service;
 
-import java.io.BufferedReader;
-import java.io.ByteArrayInputStream;
+import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.net.BindException;
@@ -29,14 +27,14 @@ import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
+import java.net.SocketTimeoutException;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Properties;
 import java.util.StringTokenizer;
 import java.util.TreeMap;
 import java.util.TreeSet;
@@ -45,7 +43,6 @@ import java.util.concurrent.Semaphore;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.mail.internet.MimeMessage;
-import javax.mail.Session;
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SNIHostName;
@@ -97,8 +94,53 @@ import net.spfbl.whois.SubnetIPv6;
  */
 public class ServerSPFBL extends Server {
 
-    private static final int SFOX_BAYES_MAX_MESSAGE_BYTES = 5 * 1024 * 1024;
-    private static final int SFOX_BAYES_MAX_ENCODED_BYTES = ((SFOX_BAYES_MAX_MESSAGE_BYTES + 2) / 3) * 4;
+    private static final int SOCKET_READ_TIMEOUT_MILLIS = 30000;
+    private static final int SOCKET_READ_DEADLINE_MILLIS = 180000;
+    private static final int MAX_PROTOCOL_LINE_BYTES = 8192;
+    private static final int MAX_SPAMD_HEADERS = 64;
+    private static final int MAX_SPAMD_HEADER_BYTES = 32768;
+
+    /**
+     * A confident Bayes decision may supersede a soft FLAG outcome, but not a
+     * whitelist, explicit hold, or an already definitive reject/block.
+     */
+    static boolean isBayesEligibleFilter(Filterable.Filter filter, Action actionRED) {
+        if (filter == null) {
+            return true;
+        } else if (actionRED != Action.FLAG) {
+            return false;
+        }
+        switch (filter) {
+            case RECIPIENT_RESTRICT:
+            case ENVELOPE_BLOCKED:
+            case SENDER_RED:
+            case SPF_UNDESIRABLE:
+            case HREF_SUSPECT:
+            case FROM_SUSPECT:
+            case ORIGIN_BLOCKED:
+            case FQDN_UNDESIRABLE:
+            case ENVELOPE_INVALID:
+            case SPF_HARMFUL:
+            case SPF_FAIL:
+            case SPF_SPOOFING:
+            case SPF_SOFTFAIL:
+            case FQDN_RED:
+            case ENVELOPE_UNDESIRABLE:
+            case ORIGIN_UNDESIRABLE:
+            case CIDR_HARMFUL:
+            case FQDN_HARMFUL:
+            case SENDER_INVALID:
+            case DKIM_UNDESIRABLE:
+            case SPF_NXDOMAIN:
+            case DOMAIN_EMERGED:
+            case FROM_FREEMAIL:
+            case EXECUTABLE_NOT_IGNORED:
+            case RECIPIENT_UNDESIRABLE:
+                return true;
+            default:
+                return false;
+        }
+    }
     
     private final int PORT;
     private final int PORTS;
@@ -375,95 +417,73 @@ public class ServerSPFBL extends Server {
     }
 
     /**
-     * Passive after-queue Bayes scoring over the loopback-only SPFBL protocol.
-     * The client address header is trusted only on a loopback connection;
-     * external MTA traffic continues to use the socket peer address.
+     * Line-oriented protocol reader that leaves message payloads as bytes.
+     * SPAMD Content-length is measured in bytes, so using a character reader
+     * for the body corrupts non-ASCII messages and defeats the size limit.
      */
-    private static String processSfoxBayesMonitor(
-            BufferedReader reader,
-            InetAddress socketAddress
-    ) {
-        if (socketAddress == null || !socketAddress.isLoopbackAddress()) {
-            return "SFOX-BAYES/1.0 77 EX_NOPERM\r\n\r\n";
+    private static final class ProtocolReader {
+
+        private final BufferedInputStream input;
+        private final long deadlineNanos;
+
+        private ProtocolReader(InputStream input) {
+            this.input = new BufferedInputStream(input);
+            this.deadlineNanos = System.nanoTime()
+                    + SOCKET_READ_DEADLINE_MILLIS * 1000000L;
         }
-        String sourceIP = null;
-        Integer contentLength = null;
-        boolean base64Encoding = false;
-        int headerCount = 0;
-        int headerCharacters = 0;
-        try {
-            String line;
-            while ((line = reader.readLine()) != null && !line.isEmpty()) {
-                headerCount++;
-                headerCharacters += line.length();
-                if (headerCount > 8 || headerCharacters > 4096 || line.length() > 1024) {
-                    return "SFOX-BAYES/1.0 76 EX_PROTOCOL\r\n\r\n";
+
+        private void checkDeadline() throws SocketTimeoutException {
+            if (System.nanoTime() - deadlineNanos >= 0) {
+                throw new SocketTimeoutException("protocol request read deadline exceeded");
+            }
+        }
+
+        private String readLine() throws IOException {
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            while (true) {
+                checkDeadline();
+                int value = input.read();
+                checkDeadline();
+                if (value < 0) {
+                    return output.size() == 0 ? null
+                            : new String(output.toByteArray(), StandardCharsets.ISO_8859_1);
                 }
-                if (line.regionMatches(true, 0, "Source-IP:", 0, 10)) {
-                    if (sourceIP != null) {
-                        return "SFOX-BAYES/1.0 76 EX_PROTOCOL\r\n\r\n";
-                    }
-                    sourceIP = line.substring(10).trim();
-                } else if (line.regionMatches(true, 0, "Content-length:", 0, 15)) {
-                    if (contentLength != null) {
-                        return "SFOX-BAYES/1.0 76 EX_PROTOCOL\r\n\r\n";
-                    }
-                    contentLength = Core.getInteger(line.substring(15).trim());
-                } else if (line.regionMatches(true, 0, "Content-Transfer-Encoding:", 0, 26)) {
-                    if (base64Encoding) {
-                        return "SFOX-BAYES/1.0 76 EX_PROTOCOL\r\n\r\n";
-                    }
-                    base64Encoding = line.substring(26).trim().equalsIgnoreCase("base64");
-                } else {
-                    return "SFOX-BAYES/1.0 76 EX_PROTOCOL\r\n\r\n";
+                if (value == '\n') {
+                    return new String(output.toByteArray(), StandardCharsets.ISO_8859_1);
                 }
-            }
-            if (line == null || sourceIP == null || !isValidIP(sourceIP)
-                    || contentLength == null || contentLength <= 0
-                    || contentLength > SFOX_BAYES_MAX_ENCODED_BYTES || !base64Encoding) {
-                return "SFOX-BAYES/1.0 76 EX_PROTOCOL\r\n\r\n";
-            }
-            InetAddress sourceAddress = InetAddress.getByName(sourceIP);
-            StringBuilder encoded = new StringBuilder(contentLength);
-            for (int index = 0; index < contentLength; index++) {
-                int value = reader.read();
-                if (value < 0 || value > 127) {
-                    return "SFOX-BAYES/1.0 76 EX_PROTOCOL\r\n\r\n";
+                if (value == '\r') {
+                    checkDeadline();
+                    input.mark(1);
+                    int next = input.read();
+                    checkDeadline();
+                    if (next != '\n' && next >= 0) {
+                        input.reset();
+                    }
+                    return new String(output.toByteArray(), StandardCharsets.ISO_8859_1);
                 }
-                encoded.append((char) value);
+                if (output.size() >= MAX_PROTOCOL_LINE_BYTES) {
+                    throw new IOException("protocol line limit exceeded");
+                }
+                output.write(value);
             }
-            if (reader.read() != -1) {
-                return "SFOX-BAYES/1.0 76 EX_PROTOCOL\r\n\r\n";
+        }
+
+        private byte[] readFully(int length) throws IOException {
+            if (length < 0) {
+                throw new IOException("invalid content length");
             }
-            byte[] rawMessage = Base64.getDecoder().decode(encoded.toString());
-            if (rawMessage.length == 0 || rawMessage.length > SFOX_BAYES_MAX_MESSAGE_BYTES) {
-                return "SFOX-BAYES/1.0 65 EX_DATAERR\r\n\r\n";
+            byte[] result = new byte[length];
+            int offset = 0;
+            while (offset < length) {
+                checkDeadline();
+                int count = input.read(result, offset, length - offset);
+                checkDeadline();
+                if (count < 0) {
+                    throw new IOException("truncated message payload");
+                }
+                offset += count;
             }
-            Client sourceClient = getClient(sourceAddress);
-            if (sourceClient == null || !sourceClient.hasPermission(Client.Permission.SPFBL)
-                    || !ContentBayes.hasAllowedClient(sourceClient.getCIDR())) {
-                return "SFOX-BAYES/1.0 77 EX_NOPERM\r\n\r\n";
-            }
-            if (!ContentBayes.isEnabled()) {
-                return "SFOX-BAYES/1.0 0 OK\r\nDecision: DISABLED\r\n\r\n";
-            }
-            MimeMessage message = new MimeMessage(
-                    Session.getInstance(new Properties()), new ByteArrayInputStream(rawMessage));
-            ContentBayes.Prediction prediction = ContentBayes.scoreForClient(
-                    message, sourceClient.getCIDR());
-            if (prediction == null) {
-                return "SFOX-BAYES/1.0 0 OK\r\nDecision: INCONCLUSIVE\r\n\r\n";
-            }
-            String decision = prediction.isConfidentSpam() ? "SPAM"
-                    : prediction.isConfidentHam() ? "HAM" : "INCONCLUSIVE";
-            return "SFOX-BAYES/1.0 0 OK\r\n"
-                    + "Decision: " + decision + "\r\n"
-                    + "Spam-Probability: "
-                    + String.format(Locale.ROOT, "%.6f", prediction.getSpamProbability()) + "\r\n"
-                    + "Known-Features: " + prediction.getKnownFeatures() + "\r\n\r\n";
-        } catch (Exception ex) {
-            Server.logError("SFOX Bayes monitor request failed: " + ex.getClass().getSimpleName());
-            return "SFOX-BAYES/1.0 74 EX_IOERR\r\n\r\n";
+            return result;
         }
     }
     
@@ -562,9 +582,8 @@ public class ServerSPFBL extends Server {
                         try {
                             client = getClient(ipAddress);
                             user = client == null ? null : client.getUser();
-                            InputStream inputStream = socket.getInputStream();
-                            InputStreamReader inputStreamReader = new InputStreamReader(inputStream, "UTF-8");
-                            BufferedReader bufferedReader = new BufferedReader(inputStreamReader);
+                            socket.setSoTimeout(SOCKET_READ_TIMEOUT_MILLIS);
+                            ProtocolReader bufferedReader = new ProtocolReader(socket.getInputStream());
                             String line = bufferedReader.readLine();
                             metricsRequest = line != null && !line.trim().isEmpty();
                             setQuery();
@@ -704,10 +723,12 @@ public class ServerSPFBL extends Server {
                                         int index = line.indexOf('=') + 1;
                                         state = line.substring(index);
                                     }
-                                } while ((line = bufferedReader.readLine()).length() > 0);
+                                } while ((line = bufferedReader.readLine()) != null && line.length() > 0);
                                 queryBuilder.append("\\n");
                                 query = queryBuilder.toString();
-                                if (state.equals("RCPT")) {
+                                if (line == null) {
+                                    result = "action=DUNNO\n\n";
+                                } else if (state.equals("RCPT")) {
                                     metricsReputationQuery = true;
                                     LinkedList<User> userResult = new LinkedList<>();
                                     TreeSet<Long> timeKeySet = new TreeSet<>();
@@ -734,13 +755,6 @@ public class ServerSPFBL extends Server {
                                 // Enviando resposta.
                                 OutputStream outputStream = socket.getOutputStream();
                                 outputStream.write(result.getBytes("ISO-8859-1"));
-                            } else if (line.equals("SFOX-BAYES/1.0")) {
-                                result = processSfoxBayesMonitor(bufferedReader, ipAddress);
-                                type = "BAYES";
-                                query = "SFOX-BAYES/1.0";
-                                OutputStream outputStream = socket.getOutputStream();
-                                outputStream.write(result.getBytes("ISO-8859-1"));
-                                outputStream.flush();
                             } else if (line.startsWith("REPORT SPAMC/")) {
                                 // Spamd protocol started.
                                 try {
@@ -748,19 +762,31 @@ public class ServerSPFBL extends Server {
                                     String messageID = null;
                                     String queueID = null;
                                     Integer contentLength = null;
+                                    int headerCount = 0;
+                                    int headerBytes = 0;
                                     StringBuilder queryBuilder = new StringBuilder();
                                     do {
+                                        if (++headerCount > MAX_SPAMD_HEADERS) {
+                                            throw new IOException("SPAMD header count limit exceeded");
+                                        }
+                                        headerBytes += line.length();
+                                        if (headerBytes > MAX_SPAMD_HEADER_BYTES) {
+                                            throw new IOException("SPAMD header size limit exceeded");
+                                        }
                                         queryBuilder.append(line);
                                         queryBuilder.append("\\r\\n");
-                                        if (line.startsWith("Content-length:")) {
+                                        if (line.regionMatches(true, 0, "Content-length:", 0, 15)) {
+                                            if (contentLength != null) {
+                                                throw new IOException("duplicate SPAMD content length");
+                                            }
                                             String value = line.substring(15).trim();
                                             contentLength = Core.getInteger(value);
-                                        } else if (line.startsWith("User:")) {
+                                        } else if (line.regionMatches(true, 0, "User:", 0, 5)) {
                                             String value = line.substring(5).trim();
                                             if (isValidEmail(value)) {
                                                 // User email pattern.
                                                 user = User.getExact(value);
-                                            } else if (value.matches("^[0-9a-zA-Z]{6}-[0-9a-zA-Z]{6}-[0-9a-zA-Z]{2}$")) {
+                                            } else if (value.matches("^[0-9a-zA-Z]{6}-[0-9a-zA-Z]{6,16}-[0-9a-zA-Z]{2,8}$")) {
                                                 // Exim queue ID pattern.
                                                 queueID = value;
                                             }
@@ -772,21 +798,16 @@ public class ServerSPFBL extends Server {
                                         result = "SPAMD/1.0 76 EX_PROTOCOL\r\n";
                                     } else if (contentLength == null) {
                                         result = "SPAMD/1.0 76 EX_PROTOCOL\r\n";
-                                    } else if (contentLength > ServerSMTP.SIZE) {
+                                    } else if (contentLength <= 0 || contentLength > ServerSMTP.SIZE) {
                                         // Message too big.
                                         result = "SPAMD/1.0 77 EX_NOPERM\r\n";
-                                    } else if (contentLength > 0) {
+                                    } else {
                                         // Reading the message.
-                                        ByteArrayOutputStream baOS = new ByteArrayOutputStream(contentLength);
-                                        int code;
-                                        while ((code = bufferedReader.read()) != -1) {
-                                            baOS.write(code);
-                                        }
+                                        byte[] byteArray = bufferedReader.readFully(contentLength);
                                         String fqdn = FQDN.getFQDN(ipAddress, false);
                                         if (fqdn == null && client != null) {
                                             fqdn = client.getDomain();
                                         }
-                                        byte[] byteArray = baOS.toByteArray();
                                         if (user == null) {
                                             if (messageID == null) {
                                                 if (message == null) {
@@ -819,13 +840,19 @@ public class ServerSPFBL extends Server {
                                                 boolean accept = false;
                                                 boolean block = false;
                                                 boolean reject = false;
+                                                boolean bayesBlock = false;
                                                 boolean hold = false;
                                                 boolean flag = false;
                                                 TreeSet<String> contentSet = null;
+                                                TreeMap<Long, Query> matchedQueries = new TreeMap<>();
                                                 for (long timeKey2 : user.getTimeKeySet()) {
                                                     timeKey = timeKey2;
                                                     Query query2 = user.getQuery(timeKey2);
                                                     if (query2 != null && query2.isQueueID(fqdn, queueID)) {
+                                                        matchedQueries.put(timeKey2, query2);
+                                                        if (query2.isWhiteKey() || query2.isWhiteKeyByAdmin()) {
+                                                            white = true;
+                                                        }
                                                         if (contentSet == null) {
                                                             if (message == null) {
                                                                 message = loadMimeMessage(byteArray);
@@ -898,13 +925,36 @@ public class ServerSPFBL extends Server {
                                                         }
                                                     }
                                                 }
+                                                if (!matchedQueries.isEmpty() && contentSet != null
+                                                        && client != null && !white && !reject && !block
+                                                        && !hold) {
+                                                    ContentBayes.Prediction bayesPrediction =
+                                                            ContentBayes.classifyForClient(
+                                                                    message, client.getCIDR()
+                                                            );
+                                                    if (bayesPrediction != null && bayesPrediction.isConfidentSpam()) {
+                                                        contentSet.add("CONTENT_BAYES_SPAM");
+                                                        contentSet.add("SFOX_BAYES_SPAM="
+                                                                + String.format(Locale.ROOT, "%.5f",
+                                                                        bayesPrediction.getSpamProbability())
+                                                                + ";FEATURES=" + bayesPrediction.getKnownFeatures());
+                                                        accept = false;
+                                                        for (Map.Entry<Long, Query> match : matchedQueries.entrySet()) {
+                                                            Query matchedQuery = match.getValue();
+                                                            matchedQuery.setResult("REJECT");
+                                                            bayesBlock = true;
+                                                            matchedQuery.setFilter("CONTENT_BAYES_SPAM");
+                                                            storeDB(match.getKey(), matchedQuery);
+                                                        }
+                                                    }
+                                                }
                                                 if (white) {
                                                     score = 4;
                                                     information = "WHITE " + contentSet;
                                                 } else if (reject) {
                                                     score = -4;
                                                     information = "REJECT " + contentSet;
-                                                } else if (block) {
+                                                } else if (block || bayesBlock) {
                                                     score = -2;
                                                     information = "BLOCK " + contentSet;
                                                 } else if (accept) {
@@ -985,7 +1035,7 @@ public class ServerSPFBL extends Server {
                                                     Action actionRED = client == null ? Action.FLAG : client.getActionRED();
                                                     Filterable.Filter filter = userQuery.processFilter();
                                                     ContentBayes.Prediction bayesPrediction = null;
-                                                    if (filter == null) {
+                                                    if (isBayesEligibleFilter(filter, actionRED)) {
                                                         String bayesClientCIDR = client == null ? null : client.getCIDR();
                                                         bayesPrediction = ContentBayes.classifyForClient(
                                                                 message, bayesClientCIDR
@@ -1008,16 +1058,8 @@ public class ServerSPFBL extends Server {
                                                     } else {
                                                         switch (filter) {
                                                             case CONTENT_BAYES_SPAM:
-                                                                if (actionRED == Action.FLAG) {
-                                                                    userQuery.setResult("FLAG");
-                                                                    flag = true;
-                                                                } else if (actionRED == Action.HOLD) {
-                                                                    userQuery.setResult("HOLD");
-                                                                    hold = true;
-                                                                } else {
-                                                                    userQuery.setResult("REJECT");
-                                                                    reject = true;
-                                                                }
+                                                                userQuery.setResult("REJECT");
+                                                                block = true;
                                                                 userQuery.setFilter(filter.name());
                                                                 break;
                                                             case IN_REPLY_TO_DESIRABLE: // 100,00%
@@ -1212,8 +1254,6 @@ public class ServerSPFBL extends Server {
                                                 }
                                             }
                                         }
-                                    } else {
-                                        result = "SPAMD/1.0 64 EX_USAGE\r\n";
                                     }
                                 } catch (IOException ex) {
                                     Server.logError(ex);

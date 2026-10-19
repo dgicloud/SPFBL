@@ -385,7 +385,7 @@ public final class AdministrationTCP extends Server {
                                     result = "INVALID PARAMETERS\n";
                                 } else if (decisionOperation.equals("ADD")) {
                                     if (!ContentBayes.hasAllowedClient(cidr)) {
-                                        result = "NOT ENROLLED FOR SCORING\n";
+                                        result = "NOT ENROLLED\n";
                                     } else if (ContentBayes.hasDecisionClient(cidr)) {
                                         result = "ALREADY EXISTS\n";
                                     } else if (!ContentBayes.addDecisionClient(cidr)) {

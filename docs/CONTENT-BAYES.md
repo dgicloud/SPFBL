@@ -8,7 +8,7 @@ Administradores autenticados podem abrir `https://matrix.example.com/admin/bayes
 
 Envie mensagens `.eml` revisadas e escolha SPAM ou HAM. O modelo Bayes é global à instância: o rótulo enviado por um usuário pode afetar a classificação dos demais clientes conectados à mesma instância. A instância processa o arquivo em memória e descarta o conteúdo bruto após aprender.
 
-O upload não rejeita mensagens em trânsito e não envia arquivos aos servidores de e-mail clientes. As instalações cPanel e Postfix consultam o envelope SPFBL; o treinamento de conteúdo permanece uma ação explícita no painel.
+O upload não rejeita mensagens em trânsito e não envia arquivos aos servidores de e-mail clientes. As integrações de envelope em `integrations/cpanel` e `integrations/postfix` não enviam corpo. O treinamento de conteúdo permanece uma ação explícita no painel.
 
 Envie apenas exemplos revisados. Não rotule automaticamente usando a previsão do próprio Bayes, pois isso reforçaria os erros do modelo. Arquivos duplicados não são contados novamente e uma tentativa de reaproveitar o mesmo conteúdo com rótulo oposto é reportada como conflito.
 
@@ -16,7 +16,9 @@ Envie apenas exemplos revisados. Não rotule automaticamente usando a previsão 
 
 No painel administrativo, cadastre o contato do cliente junto com o primeiro hostname e IP/CIDR; depois associe servidores adicionais ao cadastro. A operação corresponde a `CLIENT ADD <cidr> <hostname> <permissão> <email>`.
 
-O treinamento pelo painel do cliente escreve no modelo global. A autorização para enviar pontuação Bayes e a autorização para deixar o Bayes influenciar uma decisão SPFBL são controles separados. O upload rotulado, por si só, não habilita decisões automáticas no MTA.
+O treinamento pelo painel do cliente escreve no modelo global. O cadastro em `BAYES CLIENT` torna o MTA elegível para a inspeção de conteúdo via SPAMD; `BAYES DECISION` é a autorização explícita para rejeitar mensagens com probabilidade de SPAM igual ou superior a 0,995. O upload rotulado, por si só, não habilita decisões automáticas no MTA.
+
+Uma decisão Bayes autorizada rejeita SPAM de alta confiança mesmo quando `ACTION RED` do cliente está em `FLAG`. Isso permite que a reputação continue apenas marcando mensagens suspeitas, enquanto o Bayes aprendido pode rejeitar conteúdo comprovadamente spam. Whitelists explícitas, mensagens já rejeitadas/bloqueadas e políticas de retenção (`HOLD`) mantêm prioridade. Resultados brandos que seriam apenas `FLAG` são avaliados pelo Bayes antes de o MTA aceitar a mensagem.
 
 ## Comandos ADMIN
 
@@ -38,6 +40,8 @@ Para habilitar o modelo são necessários exemplos mínimos de SPAM e HAM confor
 
 ## Limites da classificação
 
-Uma consulta SPFBL de envelope não contém assunto ou corpo, portanto o Bayes de conteúdo não participa dessa consulta. O core também possui protocolo SPAMD para quem decidir integrar a análise de mensagem completa. Essa integração exige configuração explícita no MTA e autorização de decisão; os instaladores de cPanel e Postfix deste repositório não enviam `.eml` automaticamente.
+Uma consulta SPFBL de envelope não contém assunto ou corpo, portanto o Bayes de conteúdo não participa dessa consulta. O core também possui protocolo SPAMD para Exim e outros MTAs que optarem por análise de mensagem completa. O instalador legado `client/spamfox.cpanel.sh` e o DirectAdmin configuram esse fluxo para mensagens elegíveis; a integração modular cPanel e a integração Postfix deste repositório continuam somente com envelope.
+
+No fluxo SPAMD, a mensagem pode ser gravada temporariamente em `incoming/` quando o core identifica a fila e o hostname. O processo interno remove arquivos com mais de sete dias. O administrador deve restringir TCP 9877 aos MTAs cadastrados e considerar essa retenção ao definir sua política de privacidade.
 
 O modelo não é propagado pela rede P2P. Para replicar o aprendizado em outra instância, treine cada uma com o mesmo conjunto revisado.

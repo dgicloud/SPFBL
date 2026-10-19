@@ -89,8 +89,14 @@ public final class ClientRequestMetricsSmoke {
             request(port, policy + "RCPT\n");
             request(port, policy + "DATA\n");
             request(port, "");
+            byte[] spamdBody = ("From: sender@example.test\r\n"
+                    + "To: recipient@example.test\r\n"
+                    + "Subject: binary \u00ff payload\r\n\r\nbody\u00ff").getBytes(StandardCharsets.ISO_8859_1);
+            String spamd = requestSpamdWithoutEof(port, spamdBody);
+            require(spamd.startsWith("SPAMD/1.0 "),
+                    "SPAMD must answer after the declared byte length without waiting for EOF");
             ClientRequestMetrics.Counts live = ClientRequestMetrics.snapshot(Arrays.asList(local)).rows.get(local.getCIDR());
-            require(live.requests == 6 && live.queries == 4, "Live SPF/CHECK/legacy/Postfix listener counters are incorrect");
+            require(live.requests == 7 && live.queries == 4, "Live SPF/CHECK/legacy/Postfix listener counters are incorrect");
         } finally {
             java.lang.reflect.Field running = Core.class.getDeclaredField("running");
             running.setAccessible(true); running.setBoolean(null, false);
@@ -105,6 +111,18 @@ public final class ClientRequestMetricsSmoke {
             socket.getOutputStream().write((line + "\n").getBytes(StandardCharsets.UTF_8));
             socket.shutdownOutput();
             return new String(FirewallAdminHandler.readBounded(socket.getInputStream(), 16384), StandardCharsets.UTF_8);
+        }
+    }
+
+    private static String requestSpamdWithoutEof(int port, byte[] message) throws Exception {
+        try (Socket socket = new Socket("127.0.0.1", port)) {
+            socket.setSoTimeout(2000);
+            String header = "REPORT SPAMC/1.2\r\nUser: postmaster@example.test\r\nContent-length: "
+                    + message.length + "\r\n\r\n";
+            socket.getOutputStream().write(header.getBytes(StandardCharsets.US_ASCII));
+            socket.getOutputStream().write(message);
+            socket.getOutputStream().flush();
+            return new String(FirewallAdminHandler.readBounded(socket.getInputStream(), 16384), StandardCharsets.ISO_8859_1);
         }
     }
 
